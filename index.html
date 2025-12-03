@@ -1,0 +1,2075 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Bike, Car, Utensils, Box, MapPin, 
+  Home, Clock, User, Settings, LogOut, 
+  ChevronRight, DollarSign, Bell, Menu, X,
+  ShoppingBag, Plus, CheckCircle, TrendingUp, Trash2, ArrowRight, Store, Filter, Compass, Truck, Search, Map, CreditCard, PlusCircle, Phone, MessageCircle, HelpCircle, Wallet, PieChart, Lock, Key, Shield, UserPlus, FileText, Users, Edit, Save, ExternalLink, RefreshCw, Smartphone, Loader, LogIn, AlertCircle, Info, Grid, Power, Lock as LockIcon, ArrowLeft
+} from 'lucide-react';
+
+// --- FIREBASE IMPORTS ---
+import { initializeApp, getApps, getApp } from "firebase/app";
+import { 
+  getAuth, 
+  signInAnonymously, 
+  onAuthStateChanged
+} from "firebase/auth";
+import { 
+  getFirestore, 
+  collection, 
+  addDoc, 
+  setDoc,
+  getDoc,
+  getDocs,
+  query, 
+  where, 
+  onSnapshot, 
+  updateDoc, 
+  deleteDoc,
+  doc, 
+  serverTimestamp, 
+  orderBy,
+  increment 
+} from "firebase/firestore";
+
+// --- CONFIGURATION ---
+const firebaseConfig = {
+  apiKey: "AIzaSyAfRv6lA2U2ntFu-jgzpm5uoBxSkPyjVC4",
+  authDomain: "gotransite.firebaseapp.com",
+  projectId: "gotransite",
+  storageBucket: "gotransite.firebasestorage.app",
+  messagingSenderId: "991886146654",
+  appId: "1:991886146654:web:16773bb1eeba3bf220c8cf",
+  measurementId: "G-845QD63GQL"
+};
+
+// Initialize Firebase
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const APP_ID = "gotransite-demo-v21"; 
+
+// --- UTILS & SAFEGUARDS ---
+
+// 1. ULTRA SAFE STRING CONVERTER (Pembersih Data)
+const safeString = (val) => {
+    if (val === null || val === undefined) return '';
+    if (typeof val === 'string') return val;
+    if (typeof val === 'number') return String(val);
+    return ''; 
+};
+
+// 2. SAFE DISPLAY RENDERER
+const safeDisplay = (val) => {
+    if (val === null || val === undefined || val === '') return '-';
+    if (typeof val === 'object') return 'Data Object'; 
+    return String(val);
+};
+
+const formatRupiah = (number) => {
+  if (isNaN(number) || number === null || number === undefined) return 'Rp 0';
+  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number);
+};
+
+const formatWhatsAppLink = (number, text = "") => {
+  if (!number) return '';
+  let cleanNumber = String(number).replace(/\D/g, ''); 
+  if (cleanNumber.startsWith('0')) {
+    cleanNumber = '62' + cleanNumber.slice(1); 
+  }
+  return `https://wa.me/${cleanNumber}?text=${encodeURIComponent(text)}`;
+};
+
+const calculateTariff = (type, distanceKm) => {
+  const dist = Math.max(1, Math.ceil(distanceKm || 1)); 
+  let price = 0;
+
+  if (type === 'ride' || type === 'send') { 
+    if (dist <= 1) price = 8000;
+    else price = 8000 + ((dist - 1) * 1500);
+  } 
+  else if (type === 'car') { 
+    if (dist <= 1) price = 15000;
+    else price = 15000 + ((dist - 1) * 2500);
+  } 
+  else if (type === 'box') { 
+    if (dist <= 1) price = 70000;
+    else price = 70000 + ((dist - 1) * 5000);
+  }
+
+  return price;
+};
+
+// --- INTELLIGENT DISTANCE SIMULATOR ---
+const calculateSimulatedDistance = (origin, destination) => {
+  const o = safeString(origin).toLowerCase();
+  const d = safeString(destination).toLowerCase();
+   
+  const cities = ['jakarta', 'bekasi', 'depok', 'tangerang', 'bogor', 'bandung', 'surabaya', 'semarang', 'yogyakarta', 'medan', 'makassar', 'bali', 'malang', 'solo'];
+  const jabodetabek = ['jakarta', 'bekasi', 'depok', 'tangerang', 'bogor'];
+
+  const oCity = cities.find(c => o.includes(c));
+  const dCity = cities.find(c => d.includes(c));
+
+  let tier = 0; 
+
+  if (oCity && dCity) {
+    if (oCity === dCity) {
+      tier = 1; 
+    } else {
+      if (jabodetabek.includes(oCity) && jabodetabek.includes(dCity)) {
+        tier = 2; 
+      } else {
+        tier = 3; 
+      }
+    }
+  }
+
+  if (tier === 0) {
+    const rand = Math.random(); 
+    if (rand < 0.60) tier = 1; 
+    else if (rand < 0.90) tier = 2; 
+    else tier = 3; 
+  }
+
+  if (tier === 1) return Math.random() * (40 - 1) + 1;
+  else if (tier === 2) return Math.random() * (150 - 40) + 40;
+  else return Math.random() * (1000 - 150) + 150;
+};
+
+// --- COMPONENTS ---
+
+const Card = ({ children, className = "" }) => (
+  <div className={`bg-white rounded-2xl shadow-sm border border-gray-100 p-4 ${className}`}>
+    {children}
+  </div>
+);
+
+const Button = ({ children, onClick, variant = "primary", className = "", icon: Icon, disabled = false }) => {
+  const baseStyle = "flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-semibold transition-all duration-200 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed";
+  const variants = {
+    primary: "bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-200 shadow-lg",
+    secondary: "bg-white hover:bg-gray-50 text-gray-700 border border-gray-200",
+    danger: "bg-red-50 text-red-600 hover:bg-red-100",
+    outline: "border-2 border-emerald-500 text-emerald-600 hover:bg-emerald-50",
+    blue: "bg-blue-500 hover:bg-blue-600 text-white shadow-blue-200 shadow-lg",
+    green: "bg-green-500 hover:bg-green-600 text-white shadow-green-200 shadow-lg",
+    dark: "bg-gray-800 hover:bg-gray-900 text-white shadow-lg"
+  };
+
+  return (
+    <button onClick={onClick} disabled={disabled} className={`${baseStyle} ${variants[variant]} ${className}`}>
+      {Icon && <Icon size={20} />}
+      {children}
+    </button>
+  );
+};
+
+const Badge = ({ status }) => {
+  const styles = {
+    pending: "bg-yellow-100 text-yellow-700",
+    accepted: "bg-blue-100 text-blue-700",
+    picked_up: "bg-orange-100 text-orange-700",
+    completed: "bg-green-100 text-green-700",
+    cancelled: "bg-red-100 text-red-700"
+  };
+  const labels = {
+    pending: "Mencari Driver...",
+    accepted: "Driver Menuju Lokasi",
+    picked_up: "Sedang Diantar",
+    completed: "Selesai",
+    cancelled: "Dibatalkan"
+  };
+  return (
+    <span className={`px-2 py-1 rounded-lg text-xs font-bold uppercase ${styles[status] || "bg-gray-100"}`}>
+      {labels[status] || status}
+    </span>
+  );
+};
+
+const AddressInput = ({ icon: Icon, placeholder, value, onChange, label, onSearchComplete }) => {
+  const [isSearching, setIsSearching] = useState(false);
+  const [gpsLocked, setGpsLocked] = useState(false);
+  const timeoutRef = useRef(null);
+
+  const handleChange = (e) => {
+    const val = e.target.value;
+    onChange(val);
+    setGpsLocked(false);
+     
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    if (val.length > 5) {
+      setIsSearching(true);
+      timeoutRef.current = setTimeout(() => {
+        setIsSearching(false);
+        setGpsLocked(true);
+        if (onSearchComplete) onSearchComplete();
+      }, 1500); 
+    } else {
+      setIsSearching(false);
+    }
+  };
+
+  return (
+    <div className="relative">
+      {label && <label className="text-xs text-gray-500 font-bold mb-1 block ml-1">{label}</label>}
+      <div className={`relative flex items-center bg-gray-50 rounded-xl border transition-all ${gpsLocked ? 'border-emerald-500 ring-1 ring-emerald-200' : 'border-gray-100 focus-within:ring-2 focus-within:ring-emerald-500'}`}>
+        <div className="pl-4 text-gray-400">
+          <Icon size={20} className={gpsLocked ? 'text-emerald-500' : ''} />
+        </div>
+        <textarea 
+          rows={2}
+          placeholder={placeholder} 
+          className="w-full pl-3 pr-10 py-3 bg-transparent border-none focus:ring-0 text-sm resize-none"
+          value={value}
+          onChange={handleChange}
+        />
+        {isSearching && (
+          <div className="absolute right-3 top-3">
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-emerald-500"></div>
+          </div>
+        )}
+        {gpsLocked && !isSearching && (
+          <div className="absolute right-3 top-3 text-emerald-500" title="GPS Locked">
+            <Map size={16} />
+          </div>
+        )}
+      </div>
+      {gpsLocked && (
+        <div className="text-[10px] text-emerald-600 mt-1 flex items-center gap-1 pl-1">
+          <CheckCircle size={10} /> Titik koordinat ditemukan akurat
+        </div>
+      )}
+    </div>
+  );
+};
+
+const formatDate = (timestamp) => {
+  if (!timestamp || !timestamp.seconds) return 'Baru saja';
+  return new Date(timestamp.seconds * 1000).toLocaleDateString('id-ID', {
+    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+  });
+};
+
+// --- MAIN APP ---
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [role, setRole] = useState(null); 
+  const [view, setView] = useState('home');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [appName, setAppName] = useState('GoTransite'); 
+
+  // ADMIN AUTH STATES
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  const [adminPinInput, setAdminPinInput] = useState('');
+  const [adminError, setAdminError] = useState('');
+  const [currentAdminPin, setCurrentAdminPin] = useState('7691088'); 
+
+  // SHARED STATE FOR PASSENGER
+  const [selectedMerchantFilter, setSelectedMerchantFilter] = useState(null);
+
+  useEffect(() => {
+    const initAuth = async () => {
+      try { await signInAnonymously(auth); } catch (e) { console.error("Auth Error:", e); }
+    };
+    initAuth();
+    
+    try {
+        const unsubName = onSnapshot(doc(db, 'artifacts', APP_ID, 'public', 'data', 'admin_settings', 'general'), (s) => {
+          if (s.exists() && s.data().appName) {
+            setAppName(s.data().appName);
+          }
+        }, (error) => console.log("AppName fetch safe error:", error));
+    
+        getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'admin_settings', 'security')).then(s => {
+          if(s.exists() && s.data().currentAdminPin) {
+            setCurrentAdminPin(s.data().currentAdminPin);
+          }
+        }).catch(err => console.log("Security doc safe error:", err));
+    
+        const unsubAuth = onAuthStateChanged(auth, (u) => { setUser(u); setLoading(false); });
+        
+        return () => { if(unsubName) unsubName(); unsubAuth(); };
+    } catch(e) {
+        console.error("Init Error:", e);
+        setLoading(false);
+    }
+  }, []);
+
+
+  const handleRoleSelect = (selectedRole) => { 
+    if (selectedRole === 'admin') {
+      setShowAdminLogin(true);
+    } else {
+      setRole(selectedRole); 
+      setView('home'); 
+      setSidebarOpen(false);
+    }
+  };
+
+  const handleAdminLogin = () => {
+    if (adminPinInput === currentAdminPin) {
+      setRole('admin');
+      setView('home');
+      setSidebarOpen(false);
+      setShowAdminLogin(false);
+      setAdminPinInput('');
+      setAdminError('');
+    } else {
+      setAdminError('PIN Salah! Akses Ditolak.');
+    }
+  };
+
+  const handleLogout = () => { setRole(null); setView('home'); };
+
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-emerald-50 text-emerald-600 font-bold">Memuat {appName}...</div>;
+
+  if (showAdminLogin) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-sm w-full text-center">
+          <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Lock size={32} />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Akses Terbatas</h2>
+          <p className="text-gray-500 text-sm mb-6">Masukkan PIN Admin untuk melanjutkan.</p>
+          
+          <input 
+            type="password" 
+            className="w-full text-center text-2xl font-bold tracking-widest p-3 border rounded-xl focus:ring-2 focus:ring-red-500 mb-4"
+            placeholder="•••••••"
+            value={adminPinInput}
+            onChange={(e) => setAdminPinInput(e.target.value)}
+            maxLength={10}
+          />
+          
+          {adminError && <p className="text-red-500 text-sm font-bold mb-4">{adminError}</p>}
+          
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => { setShowAdminLogin(false); setAdminPinInput(''); setAdminError(''); }} className="flex-1">Batal</Button>
+            <Button variant="danger" onClick={handleAdminLogin} className="flex-1">Masuk</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!role) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center p-4">
+        <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-4xl w-full">
+          <div className="text-center mb-10">
+            <h1 className="text-4xl font-extrabold text-gray-800 mb-2">{appName}</h1>
+            <p className="text-gray-500">Pilih peran Anda untuk masuk ke aplikasi</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <RoleCard icon={User} title="Penumpang" desc="Pesan layanan" color="bg-blue-50 text-blue-600" onClick={() => handleRoleSelect('passenger')} />
+            <RoleCard icon={Bike} title="Driver" desc="Ambil orderan" color="bg-emerald-50 text-emerald-600" onClick={() => handleRoleSelect('driver')} />
+            <RoleCard icon={Utensils} title="Merchant" desc="Kelola usaha" color="bg-orange-50 text-orange-600" onClick={() => handleRoleSelect('merchant')} />
+            <RoleCard icon={Settings} title="Admin" desc="Pantau sistem" color="bg-purple-50 text-purple-600" onClick={() => handleRoleSelect('admin')} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-screen bg-gray-50 font-sans text-gray-800 overflow-hidden">
+      {sidebarOpen && <div className="fixed inset-0 bg-black/20 z-20 lg:hidden" onClick={() => setSidebarOpen(false)} />}
+      <aside className={`fixed inset-y-0 left-0 z-30 w-64 bg-white border-r border-gray-200 transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="h-full flex flex-col">
+          <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+            <h2 className="text-2xl font-bold text-emerald-600 tracking-tight">{appName}</h2>
+            <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-gray-500"><X size={24} /></button>
+          </div>
+          <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+            <SidebarItem icon={Home} label="Dashboard" active={view === 'home'} onClick={() => setView('home')} />
+            {role === 'passenger' && (
+              <>
+                <SidebarItem icon={Clock} label="Riwayat" active={view === 'history'} onClick={() => setView('history')} />
+                <SidebarItem icon={ShoppingBag} label="Daftar Merchant" active={view === 'merchants'} onClick={() => setView('merchants')} />
+                <SidebarItem icon={User} label="Profile Penumpang" active={view === 'profile'} onClick={() => setView('profile')} />
+                <SidebarItem icon={HelpCircle} label="Pusat Bantuan" active={view === 'help'} onClick={() => setView('help')} />
+              </>
+            )}
+            {role === 'driver' && (
+              <>
+                <SidebarItem icon={TrendingUp} label="Pendapatan" active={view === 'earnings'} onClick={() => setView('earnings')} />
+                <SidebarItem icon={User} label="Profil Driver" active={view === 'profile'} onClick={() => setView('profile')} />
+                <SidebarItem icon={HelpCircle} label="Pusat Bantuan" active={view === 'help'} onClick={() => setView('help')} />
+              </>
+            )}
+            {role === 'merchant' && (
+              <>
+                <SidebarItem icon={Store} label="Menu & Produk" active={view === 'menu'} onClick={() => setView('menu')} />
+                <SidebarItem icon={Bell} label="Pesanan Masuk" active={view === 'orders'} onClick={() => setView('orders')} />
+                <SidebarItem icon={Wallet} label="Dompet Merchant" active={view === 'wallet'} onClick={() => setView('wallet')} />
+                <SidebarItem icon={HelpCircle} label="Pusat Bantuan" active={view === 'help'} onClick={() => setView('help')} />
+              </>
+            )}
+            {role === 'admin' && (
+              <>
+                <SidebarItem icon={Users} label="Kelola User" active={view === 'manage_users'} onClick={() => setView('manage_users')} />
+                <SidebarItem icon={Settings} label="Cpanel Admin" active={view === 'cpanel'} onClick={() => setView('cpanel')} />
+              </>
+            )}
+          </div>
+          <div className="p-4 border-t border-gray-100">
+            <button onClick={handleLogout} className="flex items-center gap-3 w-full px-4 py-3 text-red-600 hover:bg-red-50 rounded-xl transition-colors font-medium"><LogOut size={20} /> Keluar</button>
+          </div>
+        </div>
+      </aside>
+      <main className="flex-1 flex flex-col h-screen overflow-hidden">
+        <header className="bg-white border-b border-gray-200 p-4 flex items-center justify-between lg:hidden">
+          <button onClick={() => setSidebarOpen(true)} className="p-2 text-gray-600 bg-gray-100 rounded-lg"><Menu size={24} /></button>
+          <h1 className="font-bold text-gray-800">{appName}</h1>
+          <div className="w-10" /> 
+        </header>
+        <div className="flex-1 overflow-y-auto p-4 lg:p-8">
+          <div className="max-w-5xl mx-auto">
+            {view === 'help' ? <HelpCenterView /> : (
+              <>
+                {role === 'passenger' && (
+                    <PassengerView 
+                        view={view} 
+                        user={user} 
+                        setView={setView} 
+                        role={role}
+                        selectedMerchantFilter={selectedMerchantFilter}
+                        setSelectedMerchantFilter={setSelectedMerchantFilter}
+                    />
+                )}
+                {role === 'driver' && <DriverView view={view} user={user} />}
+                {role === 'merchant' && <MerchantView view={view} user={user} />}
+                {role === 'admin' && <AdminView view={view} />}
+              </>
+            )}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+// --- SHARED HELP CENTER VIEW ---
+const HelpCenterView = () => {
+  const [contacts, setContacts] = useState([]);
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'artifacts', APP_ID, 'public', 'data', 'admin_settings', 'contact'), (s) => {
+      if(s.exists()) {
+        const d = s.data();
+        if (d.contacts && Array.isArray(d.contacts)) {
+            setContacts(d.contacts.filter(c => c && c.number));
+        }
+        else if (d.phoneNumber) setContacts([{ number: d.phoneNumber }]); 
+      }
+    }, (err) => console.log("Contact fetch safe error:", err)); 
+    return () => unsub();
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-gradient-to-r from-emerald-500 to-teal-500 rounded-3xl p-8 text-white shadow-xl text-center">
+         <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-4 backdrop-blur-sm">
+            <HelpCircle size={40} className="text-white"/>
+         </div>
+         <h2 className="text-3xl font-bold mb-2">Pusat Bantuan</h2>
+         <p className="opacity-90 max-w-md mx-auto">Ada kendala dengan pesanan atau akun Anda? Tim kami siap membantu 24/7.</p>
+      </div>
+
+      <Card className="max-w-lg mx-auto border-t-4 border-t-emerald-500 text-center py-8">
+         <h3 className="font-bold text-xl mb-2">Hubungi Customer Care</h3>
+         <p className="text-gray-500 mb-6">Pilih salah satu admin kami untuk chat langsung:</p>
+         
+         <div className="space-y-3">
+           {contacts && contacts.length > 0 ? (
+               contacts.map((contact, idx) => (
+                   <a 
+                       key={idx}
+                       href={formatWhatsAppLink(contact?.number)} 
+                       target="_blank" 
+                       rel="noopener noreferrer"
+                       className="flex items-center justify-center gap-3 bg-green-500 hover:bg-green-600 text-white px-6 py-4 rounded-xl font-bold text-lg transition-all transform hover:scale-105 shadow-md hover:shadow-green-200 mb-2"
+                   >
+                       <MessageCircle size={24} /> 
+                       <span>Chat Admin {contacts.length > 1 ? `#${idx+1}` : ''}</span>
+                       <ExternalLink size={16} className="opacity-70"/>
+                   </a>
+               ))
+           ) : (
+               <div className="bg-gray-100 p-4 rounded-xl inline-block text-gray-500">
+                   Belum ada nomor kontak yang tersedia saat ini.
+               </div>
+           )}
+         </div>
+      </Card>
+    </div>
+  );
+};
+
+// --- PASSENGER VIEW ---
+const PassengerView = ({ view, user, setView, role, selectedMerchantFilter, setSelectedMerchantFilter }) => {
+  const [activeTab, setActiveTab] = useState('ride');
+  const [orders, setOrders] = useState([]);
+  const [products, setProducts] = useState([]); 
+  const [merchants, setMerchants] = useState([]); 
+  const [adminBanks, setAdminBanks] = useState([]); 
+  const [balance, setBalance] = useState(0); 
+  
+  const [isRegistered, setIsRegistered] = useState(false);
+  const [hasLogin, setHasLogin] = useState(false);
+  const [regName, setRegName] = useState('');
+  const [regWa, setRegWa] = useState('');
+  const [regPin, setRegPin] = useState('');
+  const [loginPin, setLoginPin] = useState('');
+  const [authError, setAuthError] = useState('');
+  
+  const [isLoginMode, setIsLoginMode] = useState(false);
+  const [showBalanceModal, setShowBalanceModal] = useState(false);
+
+  const [pickup, setPickup] = useState('');
+  const [dest, setDest] = useState('');
+  
+  const [distance, setDistance] = useState(0);
+  const [estimatedPrice, setEstimatedPrice] = useState(0);
+  const [calculating, setCalculating] = useState(false);
+
+  const [ordering, setOrdering] = useState(false);
+  const [selectedFood, setSelectedFood] = useState(null); 
+  const [selectedCategory, setSelectedCategory] = useState('Semua');
+  const [searchTerm, setSearchTerm] = useState('');
+
+  useEffect(() => {
+    if(user) {
+      const unsub = onSnapshot(doc(db, 'artifacts', APP_ID, 'public', 'data', 'passengers', user.uid), (s) => {
+        if (s.exists()) {
+          setIsRegistered(true);
+          const d = s.data();
+          setBalance(d.balance || 0); 
+          setRegName(d.name || '');
+          setRegWa(d.whatsapp || '');
+        }
+      });
+      return () => unsub();
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if(view === 'profile') {
+      const unsub = onSnapshot(doc(db, 'artifacts', APP_ID, 'public', 'data', 'admin_settings', 'payment'), (s) => {
+        if(s.exists()) {
+            const data = s.data();
+            if (data.banks && Array.isArray(data.banks)) {
+                setAdminBanks(data.banks.filter(b => b && b.bankName));
+            }
+            else if (data.bankName) setAdminBanks([data]); 
+        }
+      });
+      return () => unsub();
+    }
+  }, [view]);
+
+  useEffect(() => {
+    if (pickup.length > 5 && dest.length > 5) {
+      setCalculating(true);
+      const timer = setTimeout(() => {
+        const smartDist = calculateSimulatedDistance(pickup, dest);
+        setDistance(smartDist);
+        setCalculating(false);
+      }, 2000);
+      return () => clearTimeout(timer);
+    } else {
+      setDistance(0);
+      setEstimatedPrice(0);
+    }
+  }, [pickup, dest]);
+
+  useEffect(() => {
+    if (distance > 0) {
+      let typeForCalc = activeTab;
+      if (activeTab === 'food') typeForCalc = 'ride'; 
+      const price = calculateTariff(typeForCalc, distance);
+      setEstimatedPrice(price);
+    }
+  }, [distance, activeTab]);
+
+  useEffect(() => { 
+    if(!user || !hasLogin) return; 
+    const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'orders'), where('passengerId', '==', user.uid));
+    const unsub = onSnapshot(q, (s) => {
+      const data = s.docs.map(d => ({id: d.id, ...d.data()}));
+      data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+      setOrders(data);
+    }, (err) => console.error(err));
+    return () => unsub();
+  }, [user, hasLogin]);
+
+  useEffect(() => { 
+    if(activeTab === 'food') {
+      const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'products'));
+      return onSnapshot(q, (s) => {
+        const data = s.docs.map(d => ({id: d.id, ...d.data()}));
+        data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+        setProducts(data);
+      }, (err) => console.error(err));
+    }
+  }, [activeTab]);
+
+  useEffect(() => { 
+    if(view === 'merchants' || activeTab === 'food') {
+      const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'merchants'));
+      return onSnapshot(q, (s) => {
+          setMerchants(s.docs.map(d => ({id: d.id, ...d.data()})));
+      }, (err) => console.error(err));
+    }
+  }, [view, activeTab]);
+
+  const handleRegister = async () => {
+    if (!regName || !regWa || !regPin) { setAuthError("Data tidak lengkap"); return; }
+    
+    try {
+        const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'passengers'), where('whatsapp', '==', regWa));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+            setAuthError("Nomor WhatsApp sudah terdaftar! Silakan Login.");
+            setIsLoginMode(true); 
+            return;
+        }
+    } catch (e) {
+        console.error("Error checking WA:", e);
+        setAuthError("Gagal memvalidasi data.");
+        return;
+    }
+
+    await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'passengers', user.uid), { name: regName, whatsapp: regWa, pin: regPin, balance: 0, joinedAt: serverTimestamp() }); 
+    setIsRegistered(true); setAuthError(''); alert("Registrasi Berhasil! Silakan Login.");
+  };
+
+  const handleManualLogin = async () => {
+    if(!regWa || !regPin) { setAuthError("Mohon isi WhatsApp dan PIN"); return; }
+    
+    try {
+        const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'passengers'), where('whatsapp', '==', regWa));
+        const snap = await getDocs(q);
+        
+        if(snap.empty) {
+            setAuthError("Nomor belum terdaftar.");
+            return;
+        }
+
+        const oldDoc = snap.docs[0];
+        const oldData = oldDoc.data();
+
+        if(oldData.pin !== regPin) {
+            setAuthError("PIN Salah!");
+            return;
+        }
+
+        await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'passengers', user.uid), {
+            ...oldData,
+            migratedFrom: oldDoc.id,
+            lastLogin: serverTimestamp()
+        });
+
+        if(oldDoc.id !== user.uid) {
+            await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'passengers', oldDoc.id));
+        }
+
+        setIsRegistered(true);
+        setHasLogin(true);
+        setAuthError('');
+        alert("Login Berhasil! Akun Anda telah dipulihkan.");
+
+    } catch(e) {
+        setAuthError("Gagal login: " + e.message);
+    }
+  };
+
+  const handleLogin = async () => {
+      const d = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'passengers', user.uid));
+      if(d.exists() && d.data().pin === loginPin) { setHasLogin(true); setAuthError(''); } else { setAuthError("PIN Salah!"); }
+  };
+
+  const contactDriver = (order) => {
+      if (!order.driverId) return alert("Belum ada driver yang mengambil order ini.");
+      getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'drivers', order.driverId)).then(snap => {
+         if (snap.exists()) {
+            const wa = snap.data().whatsapp;
+            if (wa) window.open(formatWhatsAppLink(wa, `Halo, saya ${regName}. Mengenai order...`), '_blank');
+            else alert("Driver belum mencantumkan nomor WhatsApp.");
+         }
+      });
+  };
+
+  const handleVisitMerchant = (merchantId) => {
+      setSelectedMerchantFilter(merchantId);
+      setView('home');
+      setActiveTab('food');
+  }
+
+  if (!isRegistered) return (
+    <div className="max-w-md mx-auto mt-10">
+        <Card className="p-8 border-t-4 border-t-blue-500">
+            <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                    {isLoginMode ? <LogIn size={32} /> : <UserPlus size={32} />}
+                </div>
+                <h2 className="text-2xl font-bold text-gray-800">{isLoginMode ? 'Masuk Penumpang' : 'Daftar Penumpang'}</h2>
+            </div>
+            
+            <div className="space-y-3">
+                {!isLoginMode && <input className="w-full border p-3 rounded-xl bg-gray-50" placeholder="Nama Lengkap" value={regName} onChange={e => setRegName(e.target.value)} />}
+                <input className="w-full border p-3 rounded-xl bg-gray-50" placeholder="Nomor WhatsApp" value={regWa} onChange={e => setRegWa(e.target.value)} />
+                <div className="relative">
+                    <input type="password" className="w-full border p-3 rounded-xl bg-gray-50 text-center tracking-widest font-bold" placeholder={isLoginMode ? "Masukkan PIN" : "Buat PIN (Angka)"} maxLength={6} value={regPin} onChange={e => setRegPin(e.target.value)} />
+                    <Lock size={16} className="absolute left-4 top-4 text-gray-400" />
+                </div>
+                
+                {authError && <p className="text-red-500 text-sm text-center bg-red-50 p-2 rounded">{authError}</p>}
+                
+                {isLoginMode ? (
+                    <Button onClick={handleManualLogin} variant="blue" className="w-full py-3 text-lg">Masuk Sekarang</Button>
+                ) : (
+                    <Button onClick={handleRegister} variant="blue" className="w-full py-3 text-lg">Daftar Sekarang</Button>
+                )}
+
+                <div className="text-center pt-2">
+                    <button onClick={() => { setIsLoginMode(!isLoginMode); setAuthError(''); }} className="text-sm text-blue-600 underline font-semibold">
+                        {isLoginMode ? "Belum punya akun? Daftar" : "Sudah punya akun? Login disini"}
+                    </button>
+                </div>
+            </div>
+        </Card>
+    </div>
+  );
+
+  if (!hasLogin) return <div className="max-w-sm mx-auto mt-20"><Card className="p-8 text-center shadow-xl"><div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4"><Lock size={32} /></div><h2 className="text-xl font-bold mb-2">Login Penumpang</h2><p className="text-gray-500 text-sm mb-6">Masukkan PIN keamanan Anda</p><input type="password" className="w-full text-center text-3xl font-bold tracking-[0.5em] p-4 border rounded-2xl focus:ring-2 focus:ring-blue-500 mb-4" placeholder="••••" maxLength={6} value={loginPin} onChange={e => setLoginPin(e.target.value)} />{authError && <p className="text-red-500 text-sm font-bold mb-4">{authError}</p>}<Button onClick={handleLogin} variant="blue" className="w-full py-3">Masuk Dashboard</Button></Card></div>;
+
+  const handleOrder = async () => {
+    if (!pickup || !dest) return;
+    setOrdering(true);
+    let finalPrice = estimatedPrice;
+    let foodCost = 0;
+    let shippingCost = 0;
+
+    if (activeTab === 'food' && selectedFood) {
+       shippingCost = distance > 0 ? calculateTariff('ride', distance) : 10000;
+       foodCost = selectedFood.price || 0;
+       finalPrice = foodCost + shippingCost;
+    } else {
+       shippingCost = finalPrice;
+    }
+
+    if (balance < finalPrice) {
+        setShowBalanceModal(true);
+        setOrdering(false);
+        return;
+    }
+
+    try {
+      await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'orders'), {
+        passengerId: user.uid,
+        passengerName: regName, 
+        passengerWa: regWa,
+        type: activeTab,
+        origin: pickup,
+        destination: dest,
+        distance: distance || 5, 
+        status: 'pending',
+        price: finalPrice, 
+        foodCost: foodCost, 
+        shippingCost: shippingCost, 
+        itemDetail: selectedFood ? selectedFood.name : null,
+        merchantId: selectedFood ? selectedFood.merchantId : null,
+        merchantName: selectedFood ? selectedFood.merchantName : null,
+        merchantAddress: selectedFood ? selectedFood.merchantAddress : null,
+        merchantCategory: selectedFood ? selectedFood.merchantCategory : null,
+        createdAt: serverTimestamp()
+      });
+      
+      await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'passengers', user.uid), {
+        balance: increment(-finalPrice)
+      });
+
+      setPickup(''); setDest(''); setSelectedFood(null); setDistance(0); setEstimatedPrice(0);
+    } catch (e) { console.error(e); }
+    setOrdering(false);
+  };
+
+  const handleSelectFood = (food) => {
+    setSelectedFood(food);
+    setPickup(food.merchantAddress || food.merchantName); 
+  };
+
+  const filteredMerchants = merchants.filter(m => {
+    const matchCategory = selectedCategory === 'Semua' ? true : m.category === selectedCategory;
+    const name = safeString(m.name); 
+    const matchSearch = name.toLowerCase().includes(safeString(searchTerm).toLowerCase());
+    return matchCategory && matchSearch;
+  });
+
+  const filteredProducts = products.filter(p => {
+      if (selectedMerchantFilter) {
+          return p.merchantId === selectedMerchantFilter;
+      }
+      return true;
+  });
+
+  const isMerchantOpen = (merchantId) => {
+      const merchant = merchants.find(m => m.id === merchantId);
+      return merchant ? (merchant.isOpen !== false) : true;
+  };
+
+  if (view === 'merchants') {
+    return (
+      <div className="space-y-6">
+        <div className="bg-orange-500 rounded-3xl p-6 text-white shadow-xl">
+           <div className="flex items-center gap-3 mb-2"><Store size={32} /><h2 className="text-3xl font-bold">Daftar Merchant</h2></div>
+           <p className="opacity-90">Cari toko favoritmu disini</p>
+        </div>
+        <div className="relative">
+          <div className="absolute left-4 top-3.5 text-gray-400"><Search size={20} /></div>
+          <input type="text" placeholder="Cari nama toko..." className="w-full pl-12 pr-4 py-3 bg-white rounded-xl border border-gray-200 focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all shadow-sm" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+        </div>
+        <div className="flex gap-2 overflow-x-auto pb-2 hide-scrollbar">
+          {['Semua', 'Makanan & Minuman', 'Laundry', 'Toko Sembako', 'Bahan Bangunan', 'Apotik', 'Lainnya'].map(cat => (
+            <button key={cat} onClick={() => setSelectedCategory(cat)} className={`px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap border ${selectedCategory === cat ? 'bg-orange-600 text-white border-orange-600' : 'bg-white text-gray-600'}`}>{cat}</button>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+           {filteredMerchants.length > 0 ? filteredMerchants.map(m => {
+             const isOpen = m.isOpen !== false; // Default Open
+             return (
+             <Card key={m.id} className={`hover:shadow-md cursor-pointer border-l-4 ${isOpen ? 'border-l-orange-500' : 'border-l-gray-400 bg-gray-50'}`}>
+               <div className="flex justify-between">
+                    <div className="flex gap-4">
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isOpen ? 'bg-orange-100 text-orange-600' : 'bg-gray-200 text-gray-500'}`}><Utensils size={24} /></div>
+                        <div>
+                            <h3 className={`font-bold text-lg ${!isOpen && 'text-gray-500'}`}>{safeDisplay(m.name)}</h3>
+                            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-md">{safeDisplay(m.category) || 'Umum'}</span>
+                        </div>
+                    </div>
+                    <div>
+                        <span className={`text-[10px] px-2 py-1 rounded font-bold uppercase ${isOpen ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {isOpen ? 'BUKA' : 'TUTUP'}
+                        </span>
+                    </div>
+               </div>
+               <div className="flex items-start gap-1 text-sm text-gray-500 mt-3"><MapPin size={14} className="mt-0.5" />{safeDisplay(m.address)}</div>
+               
+               <div className="mt-4 pt-3 border-t border-gray-100 flex justify-end">
+                  <button 
+                    onClick={() => handleVisitMerchant(m.id)} 
+                    className={`text-sm font-bold flex items-center gap-1 ${isOpen ? 'text-orange-600' : 'text-gray-400 cursor-not-allowed'}`}
+                    disabled={!isOpen}
+                  >
+                    {isOpen ? 'Kunjungi' : 'Toko Tutup'} <ArrowRight size={16} />
+                  </button>
+               </div>
+             </Card>
+           )}) : (
+             <div className="col-span-2 text-center py-12 text-gray-400">Tidak ada toko yang cocok dengan pencarian Anda.</div>
+           )}
+        </div>
+      </div>
+    );
+  }
+
+  if (view === 'history') return (
+    <div className="space-y-4">
+      <h2 className="text-2xl font-bold mb-4">Riwayat Pesanan</h2>
+      {orders.map(order => (
+        <Card key={order.id} className="flex justify-between items-center">
+          <div>
+            <div className="flex items-center gap-2 mb-1"><Badge status={order.status} /><span className="text-sm text-gray-500">{formatDate(order.createdAt)}</span></div>
+            <p className="font-bold">{order.itemDetail || order.destination}</p>
+            <p className="text-sm text-gray-500">Jarak: {order.distance?.toFixed(1)} km • {formatRupiah(order.price)}</p>
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+
+  if (view === 'profile') {
+    return (
+       <div className="space-y-6">
+         <Card className="text-center py-10">
+          <div className="w-24 h-24 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4 text-emerald-600">
+            <User size={40} />
+          </div>
+          <h2 className="text-2xl font-bold">{safeDisplay(regName) || 'Pengguna Setia'}</h2>
+          <p className="text-gray-500 mb-6">{safeDisplay(regWa) || user?.uid}</p>
+          
+          <div className="grid grid-cols-2 gap-4 max-w-sm mx-auto">
+            <div className="bg-gray-50 p-4 rounded-xl">
+              <p className="text-xs text-gray-500">Saldo GoPay</p>
+              <p className="font-bold text-lg text-emerald-600">{formatRupiah(balance)}</p>
+            </div>
+            <div className="bg-gray-50 p-4 rounded-xl">
+              <p className="text-xs text-gray-500">Poin</p>
+              <p className="font-bold text-lg">2.450 XP</p>
+            </div>
+          </div>
+        </Card>
+        {adminBanks && adminBanks.length > 0 ? (
+          <Card className="bg-blue-50 border border-blue-100 relative overflow-hidden">
+            <div className="absolute right-0 top-0 p-4 opacity-10">
+              <CreditCard size={100} />
+            </div>
+            <h4 className="font-bold text-blue-800 mb-3 flex items-center gap-2">
+              <CreditCard size={20} /> Info Top Up Saldo
+            </h4>
+            <p className="text-sm text-blue-700 mb-4">Silakan transfer ke salah satu rekening resmi kami:</p>
+            
+            <div className="space-y-3">
+              {adminBanks.map((bank, index) => (
+                <div key={index} className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm relative">
+                  <span className="absolute top-2 right-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-bold">Opsi {index + 1}</span>
+                  <div className="space-y-1">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Bank</p>
+                    <p className="font-bold text-lg text-gray-800">{bank.bankName}</p>
+                    <div className="h-px bg-gray-100 my-2"></div>
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Nomor Rekening</p>
+                    <p className="font-mono text-xl font-bold text-blue-600 tracking-wider">{bank.accountNumber}</p>
+                    <div className="h-px bg-gray-100 my-2"></div>
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Atas Nama</p>
+                    <p className="font-bold text-gray-800">{bank.accountHolder}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-blue-600 mt-4 text-center">*Hubungi admin via WhatsApp setelah transfer.</p>
+          </Card>
+        ) : (
+          <Card className="bg-gray-50 border border-dashed border-gray-300 text-center py-6"><p className="text-gray-500 text-sm">Info rekening belum tersedia.</p></Card>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* BALANCE CHECK MODAL */}
+      {showBalanceModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+                <button onClick={() => setShowBalanceModal(false)} className="absolute right-4 top-4 text-gray-400 hover:text-gray-600"><X size={24}/></button>
+                
+                <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <AlertCircle size={32} />
+                </div>
+                
+                <h3 className="text-xl font-bold text-gray-800 mb-2">Saldo Tidak Mencukupi</h3>
+                
+                <div className="bg-gray-50 p-3 rounded-lg mb-4">
+                    <p className="text-xs text-gray-500 mb-1">Saldo Anda Saat Ini</p>
+                    <p className="text-lg font-bold text-gray-700">{formatRupiah(balance)}</p>
+                </div>
+
+                <p className="text-gray-600 text-sm mb-6 leading-relaxed">
+                    Mohon maaf, saldo Anda tidak mencukupi untuk melakukan pemesanan ini. 
+                    <br/><br/>
+                    Silakan <b>transfer pada rekening yang sudah disediakan</b> dan <b>konfirmasi buktinya ke nomer Customer Care</b>.
+                </p>
+                
+                <div className="space-y-2">
+                    <Button onClick={() => { setShowBalanceModal(false); setView('profile'); }} variant="primary" className="w-full py-3" icon={CreditCard}>
+                        Lihat Rekening (Menu Profil)
+                    </Button>
+                    <Button onClick={() => { setShowBalanceModal(false); setView('help'); }} variant="green" className="w-full py-3" icon={MessageCircle}>
+                        Hubungi Customer Care
+                    </Button>
+                    <Button onClick={() => setShowBalanceModal(false)} variant="secondary" className="w-full py-3">
+                        Tutup
+                    </Button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      <div className="bg-emerald-600 rounded-3xl p-6 text-white shadow-xl">
+        <h2 className="text-3xl font-bold mb-6">Mau kemana hari ini?</h2>
+        <div className="grid grid-cols-5 gap-2 md:gap-4 overflow-x-auto pb-2 hide-scrollbar">
+          <ServiceIcon icon={Bike} label="GoRide" active={activeTab === 'ride'} onClick={() => {setActiveTab('ride'); setSelectedFood(null); setPickup(''); setDistance(0); setSelectedMerchantFilter(null);}} />
+          <ServiceIcon icon={Car} label="GoCar" active={activeTab === 'car'} onClick={() => {setActiveTab('car'); setSelectedFood(null); setPickup(''); setDistance(0); setSelectedMerchantFilter(null);}} />
+          <ServiceIcon icon={Store} label="Merchant" active={activeTab === 'food'} onClick={() => {setActiveTab('food'); setDistance(0);}} />
+          <ServiceIcon icon={Box} label="GoSend" active={activeTab === 'send'} onClick={() => {setActiveTab('send'); setSelectedFood(null); setPickup(''); setDistance(0); setSelectedMerchantFilter(null);}} />
+          <ServiceIcon icon={Truck} label="GoBox" active={activeTab === 'box'} onClick={() => {setActiveTab('box'); setSelectedFood(null); setPickup(''); setDistance(0); setSelectedMerchantFilter(null);}} />
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-4">
+          {activeTab === 'food' && !selectedFood ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-lg flex items-center gap-2"><Utensils className="text-orange-500" /> Pilih Produk</h3>
+                {selectedMerchantFilter && (
+                    <button 
+                        onClick={() => setSelectedMerchantFilter(null)} 
+                        className="text-sm text-emerald-600 underline flex items-center gap-1"
+                    >
+                        <ArrowLeft size={14}/> Lihat Semua Merchant
+                    </button>
+                )}
+              </div>
+              
+              {selectedMerchantFilter && (
+                  <div className="bg-orange-50 border border-orange-200 p-3 rounded-lg mb-2 text-sm text-orange-800 flex items-center gap-2">
+                      <Store size={16} /> Menampilkan produk dari toko yang dipilih.
+                  </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {filteredProducts.map(product => {
+                    const isOpen = isMerchantOpen(product.merchantId);
+                    return (
+                    <Card key={product.id} className={`flex flex-col justify-between hover:shadow-md cursor-pointer ${!isOpen ? 'opacity-60 bg-gray-50' : ''}`}>
+                        <div>
+                            <div className="flex justify-between items-start mb-2">
+                                <div className={`p-2 rounded-lg ${isOpen ? 'bg-orange-100 text-orange-600' : 'bg-gray-200 text-gray-500'}`}>
+                                    <Utensils size={20} />
+                                </div>
+                                <span className={`font-bold ${isOpen ? 'text-emerald-600' : 'text-gray-500'}`}>
+                                    Rp {product.price?.toLocaleString() || '0'}
+                                </span>
+                            </div>
+                            <h4 className="font-bold text-gray-800 text-lg mb-1">{safeDisplay(product.name)}</h4>
+                            <div className="mb-4 pt-2 border-t border-gray-100 mt-2">
+                                <p className="text-xs font-bold text-gray-700 flex items-center gap-1">
+                                    <Store size={12} className={isOpen ? "text-orange-500" : "text-gray-400"}/> 
+                                    {safeDisplay(product.merchantName) || "Merchant"}
+                                    {!isOpen && <span className="text-[10px] bg-red-100 text-red-600 px-1 rounded ml-1">TUTUP</span>}
+                                </p>
+                                <span className="text-[10px] bg-gray-100 px-2 py-0.5 rounded text-gray-500">{safeDisplay(product.merchantCategory) || 'Umum'}</span>
+                            </div>
+                        </div>
+                        <Button 
+                            variant={isOpen ? "primary" : "secondary"} 
+                            className={`w-full py-2 text-sm ${!isOpen && 'cursor-not-allowed'}`}
+                            onClick={() => isOpen && handleSelectFood(product)}
+                            disabled={!isOpen}
+                        >
+                            {isOpen ? 'Pesan Ini' : 'Toko Tutup'}
+                        </Button>
+                    </Card>
+                )})}
+                {filteredProducts.length === 0 && (
+                    <div className="col-span-full text-center py-10 text-gray-400 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                        <p>Tidak ada produk ditemukan.</p>
+                        {selectedMerchantFilter && <button onClick={() => setSelectedMerchantFilter(null)} className="text-emerald-500 underline mt-2">Lihat merchant lain</button>}
+                    </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <Card className="p-6 transition-all duration-300">
+              <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+                <MapPin className="text-emerald-500" /> 
+                {activeTab === 'food' ? 'Konfirmasi Pesanan' : 
+                 activeTab === 'box' ? 'Pesan Mobil Pickup' :
+                 activeTab === 'car' ? 'Pesan Mobil' :
+                 activeTab === 'send' ? 'Kirim Paket (Motor)' :
+                 'Pesan Motor'}
+              </h3>
+              
+              {selectedFood && (
+                <div className="bg-orange-50 p-4 rounded-xl mb-4 border border-orange-100 space-y-2">
+                  <div className="flex justify-between"><div><p className="text-sm text-gray-500">Menu:</p><p className="font-bold text-lg text-gray-800">{safeDisplay(selectedFood.name)}</p></div><p className="text-emerald-600 font-bold">Rp {selectedFood.price?.toLocaleString()}</p></div>
+                  <div className="pt-2 border-t border-orange-100"><p className="text-xs text-gray-500">Ambil di:</p><p className="text-sm font-bold text-orange-800">{safeDisplay(selectedFood.merchantName)}</p><p className="text-xs text-gray-600">{safeDisplay(selectedFood.merchantAddress)}</p></div>
+                  <button onClick={() => setSelectedFood(null)} className="text-xs text-red-500 underline mt-2">Ganti Pilihan</button>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <AddressInput 
+                  icon={MapPin}
+                  label="Lokasi Jemput / Asal"
+                  placeholder="Ketik Nama, Jalan, RT/RW, Kelurahan..." 
+                  value={pickup} 
+                  onChange={setPickup} 
+                />
+                
+                <AddressInput 
+                  icon={Compass}
+                  label="Lokasi Tujuan / Antar"
+                  placeholder="Ketik Alamat Tujuan Lengkap..." 
+                  value={dest} 
+                  onChange={setDest} 
+                />
+
+                {/* INFO JARAK & HARGA OTOMATIS */}
+                <div className={`transition-all duration-500 overflow-hidden ${distance > 0 || calculating ? 'max-h-40 opacity-100' : 'max-h-0 opacity-0'}`}>
+                  <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-100 mt-2">
+                    {calculating ? (
+                      <div className="flex items-center gap-2 text-gray-500 animate-pulse">
+                        <Map size={16} /> Menghitung jarak via GPS...
+                      </div>
+                    ) : (
+                      <div className="flex justify-between items-end">
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">Total Jarak Terdeteksi</p>
+                          <p className="text-xl font-bold text-gray-800 flex items-baseline gap-1">
+                            {distance.toFixed(1)} <span className="text-sm font-normal text-gray-500">km</span>
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-gray-500 mb-1">Total Biaya</p>
+                          <p className="text-2xl font-bold text-emerald-600">
+                            {activeTab === 'food' && selectedFood 
+                              ? formatRupiah((selectedFood.price || 0) + estimatedPrice) 
+                              : formatRupiah(estimatedPrice)}
+                          </p>
+                          {activeTab === 'food' && <p className="text-[10px] text-gray-400">(Harga Makanan + Ongkir)</p>}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <Button 
+                  onClick={handleOrder} 
+                  className="w-full mt-4" 
+                  variant={distance > 0 ? "primary" : "secondary"}
+                  disabled={!distance} 
+                >
+                  {ordering ? 'Memesan...' : distance > 0 ? 'Pesan Sekarang' : 'Lengkapi Alamat...'}
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {orders.filter(o => o.status !== 'completed' && o.status !== 'cancelled').map(order => (
+              <Card key={order.id} className="border-l-4 border-l-emerald-500 bg-emerald-50/50">
+                <div className="flex justify-between items-start">
+                  <div>
+                    {order.status === 'pending' ? (
+                        <div className="flex items-center gap-2 mb-2 animate-pulse">
+                           <div className="w-4 h-4 bg-emerald-400 rounded-full"></div>
+                           <h4 className="font-bold text-emerald-600">Mencari Driver...</h4>
+                        </div>
+                    ) : (
+                        <div className="flex items-center gap-2 mb-2">
+                           <h4 className="font-bold text-emerald-800">Status Pesanan</h4>
+                           <Badge status={order.status} />
+                        </div>
+                    )}
+
+                   <p className="text-sm text-gray-600">Tujuan: {order.destination}</p>
+                   <div className="flex items-center gap-2 mt-1 text-xs text-emerald-700 bg-emerald-100 px-2 py-1 rounded w-max">
+                      <Compass size={12} /> Jarak: {order.distance?.toFixed(1)} km
+                   </div>
+                   {order.itemDetail && <div className="mt-1"><p className="text-xs font-bold text-orange-600">📦 {order.itemDetail}</p><p className="text-[10px] text-gray-500">Ambil di: {order.merchantName}</p></div>}
+                   
+                   {/* TOMBOL CHAT */}
+                   {(order.status === 'accepted' || order.status === 'picked_up') && (
+                       <div className="mt-3 border-t pt-2">
+                           <Button 
+                               onClick={() => contactDriver(order)} 
+                               variant="green" 
+                               className="w-full py-2 text-xs"
+                               icon={MessageCircle}
+                           >
+                               Chat Driver
+                           </Button>
+                       </div>
+                   )}
+                  </div>
+                  <Button variant="danger" className="py-1 px-3 text-xs" onClick={() => updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'orders', order.id), { status: 'cancelled' })}>Batal</Button>
+                </div>
+              </Card>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- DRIVER & MERCHANT VIEWS (UNCHANGED) ---
+const DriverView = ({ view, user }) => {
+  const [isOnline, setIsOnline] = useState(true);
+  const [incomingOrders, setIncomingOrders] = useState([]);
+  const [myJob, setMyJob] = useState(null);
+  const [earningsHistory, setEarningsHistory] = useState([]); 
+  const [isRegistered, setIsRegistered] = useState(false);
+  const [hasLogin, setHasLogin] = useState(false);
+  const [regName, setRegName] = useState('');
+  const [regWa, setRegWa] = useState('');
+  const [regAddress, setRegAddress] = useState('');
+  const [regPlate, setRegPlate] = useState('');
+  const [regPin, setRegPin] = useState('');
+  const [loginPin, setLoginPin] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [isLoginMode, setIsLoginMode] = useState(false); // ADDED LOGIN MODE
+
+  useEffect(() => { if(user) getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'drivers', user.uid)).then(s => { if (s.exists()) setIsRegistered(true); }); }, [user]);
+  useEffect(() => { if(isOnline && hasLogin) return onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'orders'), where('status', '==', 'pending')), (s) => setIncomingOrders(s.docs.map(d => ({id: d.id, ...d.data()})))); }, [isOnline, hasLogin]);
+  useEffect(() => { if(user && hasLogin) return onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'orders'), where('driverId', '==', user.uid), where('status', 'in', ['accepted', 'picked_up'])), (s) => setMyJob(s.docs[0] ? {id: s.docs[0].id, ...s.docs[0].data()} : null)); }, [user, hasLogin]);
+  useEffect(() => {
+    if (view === 'earnings' && user && hasLogin) {
+        const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'orders'), where('driverId', '==', user.uid), where('status', '==', 'completed'));
+        return onSnapshot(q, (s) => { const data = s.docs.map(d => ({id: d.id, ...d.data()})); data.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)); setEarningsHistory(data); });
+    }
+  }, [view, user, hasLogin]);
+
+  const handleRegister = async () => { 
+      if (!regName || !regWa || !regAddress || !regPlate || !regPin) { setAuthError("Data tidak lengkap"); return; } 
+      
+      try {
+        const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'drivers'), where('whatsapp', '==', regWa));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+            setAuthError("Nomor WhatsApp sudah terdaftar! Silakan Login.");
+            setIsLoginMode(true);
+            return;
+        }
+      } catch (e) {
+        console.error(e);
+        setAuthError("Gagal validasi.");
+        return;
+      }
+
+      await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'drivers', user.uid), { name: regName, whatsapp: regWa, address: regAddress, plate: regPlate, pin: regPin, joinedAt: serverTimestamp() }); 
+      setIsRegistered(true); setAuthError(''); alert("Registrasi Berhasil! Silakan Login."); 
+  };
+
+  // MANUAL LOGIN DRIVER
+  const handleManualLogin = async () => {
+    if(!regWa || !regPin) { setAuthError("Mohon isi WhatsApp dan PIN"); return; }
+    try {
+        const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'drivers'), where('whatsapp', '==', regWa));
+        const snap = await getDocs(q);
+        if(snap.empty) { setAuthError("Nomor belum terdaftar."); return; }
+        const oldDoc = snap.docs[0];
+        if(oldDoc.data().pin !== regPin) { setAuthError("PIN Salah!"); return; }
+
+        await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'drivers', user.uid), { ...oldDoc.data(), migratedFrom: oldDoc.id, lastLogin: serverTimestamp() });
+        if(oldDoc.id !== user.uid) await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'drivers', oldDoc.id));
+
+        setIsRegistered(true); setHasLogin(true); setAuthError(''); alert("Login Berhasil! Akun Driver dipulihkan.");
+    } catch(e) { setAuthError("Gagal login: " + e.message); }
+  };
+  
+  const handleLogin = async () => { const d = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'drivers', user.uid)); if(d.exists() && d.data().pin === loginPin) { setHasLogin(true); setAuthError(''); } else { setAuthError("PIN Salah!"); } };
+  const acceptOrder = async (id) => await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'orders', id), { status: 'accepted', driverId: user.uid });
+  const pickUpOrder = async () => await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'orders', myJob.id), { status: 'picked_up' });
+  const completeOrder = async () => { if(!myJob) return; let adminFee = 0, driverIncome = 0, merchantIncome = 0, merchantAdminFee = 0; if (myJob.itemDetail) { const shipping = myJob.shippingCost || 10000; const dFee = Math.floor(shipping * 0.15); driverIncome = shipping - dFee; const food = myJob.foodCost || (myJob.price - shipping); const mFee = Math.floor(food * 0.10); merchantIncome = food - mFee; merchantAdminFee = mFee; adminFee = dFee + mFee; } else { adminFee = Math.floor(myJob.price * 0.15); driverIncome = myJob.price - adminFee; } await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'orders', myJob.id), { status: 'completed', adminFee, driverIncome, merchantIncome, merchantAdminFee }); };
+
+  // NEW: CONTACT PASSENGER
+  const contactPassenger = () => {
+      if (!myJob || !myJob.passengerWa) return alert("Nomor WhatsApp penumpang tidak ditemukan.");
+      window.open(formatWhatsAppLink(myJob.passengerWa, `Halo, saya Driver GoTransite. Saya sudah menerima orderan Anda...`), '_blank');
+  };
+
+  if (!isRegistered) return (
+    <div className="max-w-md mx-auto mt-10">
+        <Card className="p-8 border-t-4 border-t-emerald-500">
+            <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                    {isLoginMode ? <LogIn size={32} /> : <UserPlus size={32} />}
+                </div>
+                <h2 className="text-2xl font-bold text-gray-800">{isLoginMode ? 'Masuk Driver' : 'Daftar Mitra Driver'}</h2>
+            </div>
+            <div className="space-y-3">
+                {!isLoginMode && <input className="w-full border p-3 rounded-xl bg-gray-50" placeholder="Nama Lengkap" value={regName} onChange={e => setRegName(e.target.value)} />}
+                <input className="w-full border p-3 rounded-xl bg-gray-50" placeholder="Nomor WhatsApp" value={regWa} onChange={e => setRegWa(e.target.value)} />
+                {!isLoginMode && <input className="w-full border p-3 rounded-xl bg-gray-50" placeholder="Alamat Domisili" value={regAddress} onChange={e => setRegAddress(e.target.value)} />}
+                {!isLoginMode && <input className="w-full border p-3 rounded-xl bg-gray-50" placeholder="Nomor Plat Motor" value={regPlate} onChange={e => setRegPlate(e.target.value)} />}
+                <div className="relative">
+                    <input type="password" className="w-full border p-3 rounded-xl bg-gray-50 text-center tracking-widest font-bold" placeholder={isLoginMode ? "Masukkan PIN" : "Buat PIN (Angka)"} maxLength={6} value={regPin} onChange={e => setRegPin(e.target.value)} />
+                    <Lock size={16} className="absolute left-4 top-4 text-gray-400" />
+                </div>
+                {authError && <p className="text-red-500 text-sm text-center bg-red-50 p-2 rounded">{authError}</p>}
+                
+                {isLoginMode ? (
+                    <Button onClick={handleManualLogin} className="w-full py-3 text-lg">Masuk Sekarang</Button>
+                ) : (
+                    <Button onClick={handleRegister} className="w-full py-3 text-lg">Daftar Sekarang</Button>
+                )}
+                <div className="text-center pt-2">
+                    <button onClick={() => { setIsLoginMode(!isLoginMode); setAuthError(''); }} className="text-sm text-emerald-600 underline font-semibold">
+                        {isLoginMode ? "Belum punya akun? Daftar" : "Sudah punya akun? Login disini"}
+                    </button>
+                </div>
+            </div>
+        </Card>
+    </div>
+  );
+
+  if (!hasLogin) return <div className="max-w-sm mx-auto mt-20"><Card className="p-8 text-center shadow-xl"><div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4"><Lock size={32} /></div><h2 className="text-xl font-bold mb-2">Login Driver</h2><p className="text-gray-500 text-sm mb-6">Masukkan PIN keamanan Anda</p><input type="password" className="w-full text-center text-3xl font-bold tracking-[0.5em] p-4 border rounded-2xl focus:ring-2 focus:ring-emerald-500 mb-4" placeholder="••••" maxLength={6} value={loginPin} onChange={e => setLoginPin(e.target.value)} />{authError && <p className="text-red-500 text-sm font-bold mb-4">{authError}</p>}<Button onClick={handleLogin} variant="primary" className="w-full py-3">Masuk Dashboard</Button></Card></div>;
+  if (view === 'earnings') { const totalEarnings = earningsHistory.reduce((acc, curr) => acc + (curr.driverIncome || 0), 0); return <div className="space-y-6"><h2 className="text-2xl font-bold flex items-center gap-2"><TrendingUp size={28} /> Riwayat Pendapatan</h2><Card className="bg-gradient-to-r from-emerald-600 to-green-500 text-white border-none p-6 shadow-lg"><p className="text-emerald-100 text-sm mb-1 uppercase font-semibold">Total Pendapatan Bersih</p><h3 className="text-4xl font-bold">{formatRupiah(totalEarnings)}</h3><p className="text-xs text-emerald-100 mt-2">*Sudah dipotong admin fee 15%</p></Card><div className="space-y-3"><h4 className="font-bold text-gray-700">Riwayat Transaksi</h4>{earningsHistory.length > 0 ? earningsHistory.map(order => <Card key={order.id} className="flex justify-between items-center py-3 border-l-4 border-l-emerald-500"><div><div className="flex items-center gap-2"><span className="font-bold text-gray-800">{order.itemDetail ? 'Antar Merchant' : 'Layanan Transport'}</span><span className="text-xs text-gray-400">{formatDate(order.createdAt)}</span></div><p className="text-xs text-gray-500 mt-1 truncate w-48">{order.destination}</p></div><div className="text-right"><p className="font-bold text-emerald-600">+{formatRupiah(order.driverIncome)}</p><p className="text-[10px] text-gray-400">Total: {formatRupiah(order.price)}</p></div></Card>) : <div className="text-center py-10 bg-gray-50 rounded-xl text-gray-400">Belum ada riwayat pendapatan.</div>}</div></div>; }
+
+  return <div className="space-y-6"><div className="flex items-center justify-between"><div><h2 className="text-2xl font-bold">Halo, Driver!</h2><p className={`flex items-center gap-2 ${isOnline ? 'text-green-600' : 'text-gray-500'}`}>{isOnline ? 'Anda Online' : 'Anda Offline'}</p></div><button onClick={() => setIsOnline(!isOnline)} className={`px-6 py-2 rounded-full font-bold transition-colors ${isOnline ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>{isOnline ? 'Matikan' : 'Aktifkan'}</button></div>{myJob ? <Card className="bg-emerald-600 text-white border-none"><div className="flex justify-between items-start mb-6"><div><h3 className="text-xl font-bold mb-1">Sedang Bertugas</h3><Badge status={myJob.status} /></div><div className="text-right"><div className="bg-white/20 px-3 py-1 rounded-lg font-bold">{formatRupiah(myJob.price)}</div><p className="text-xs opacity-80 mt-1">{myJob.distance?.toFixed(1)} km</p></div></div><div className="bg-white text-gray-800 rounded-xl p-4 space-y-4"><div className="space-y-4"><div><p className="text-xs text-gray-500 uppercase font-bold">Langkah 1: Jemput / Ambil</p><div className="flex items-start gap-2 mt-1"><div className="mt-1"><MapPin size={16} className="text-orange-500" /></div><div><p className="font-bold text-lg">{myJob.origin}</p>{myJob.itemDetail && <p className="text-sm text-orange-600 font-semibold bg-orange-50 px-2 py-0.5 rounded inline-block">📦 {myJob.itemDetail}</p>}</div></div></div><div className="border-t pt-4"><p className="text-xs text-gray-500 uppercase font-bold">Langkah 2: Antar Ke</p><div className="flex items-start gap-2 mt-1"><div className="mt-1"><Compass size={16} className="text-emerald-500" /></div><p className="font-bold text-lg">{myJob.destination}</p></div></div></div><div className="grid grid-cols-2 gap-2">{myJob.status === 'accepted' ? <Button onClick={pickUpOrder} variant="blue" className="w-full">Sudah Dijemput</Button> : <Button onClick={completeOrder} variant="primary" className="w-full">Selesai</Button>}<Button onClick={contactPassenger} variant="green" icon={MessageCircle} className="w-full">Chat Penumpang</Button></div></div></Card> : <div className="space-y-4"><h3 className="font-bold text-gray-600 uppercase text-sm tracking-wide">Order Masuk ({incomingOrders.length})</h3>{isOnline && incomingOrders.map(order => <Card key={order.id} className="hover:border-emerald-500 cursor-pointer transition-all"><div className="flex justify-between items-center mb-3"><Badge status={order.type} /><span className="font-bold text-emerald-600">{formatRupiah(order.price)}</span></div><div className="space-y-2 mb-4"><div className="flex gap-2 text-sm"><MapPin size={16} className="text-gray-400" /><span className="truncate">{order.origin}</span></div><div className="flex gap-2 text-sm"><Compass size={16} className="text-emerald-500" /><span className="font-bold truncate">{order.destination}</span></div><div className="flex gap-2 text-xs text-gray-500 mt-2 bg-gray-50 p-2 rounded"><span>📏 {order.distance?.toFixed(1)} km</span></div>{order.itemDetail && <div className="bg-orange-50 p-2 rounded border border-orange-100 mt-2"><div className="text-xs font-bold text-orange-700">🛒 Ambil:</div><div className="text-sm font-bold">{order.itemDetail}</div><div className="text-[10px] text-gray-500 mt-1">Di: {order.merchantName}</div></div>}</div><Button variant="primary" className="w-full py-2 text-sm" onClick={() => acceptOrder(order.id)}>Terima</Button></Card>)}{isOnline && incomingOrders.length === 0 && <div className="text-center py-12 text-gray-500">Menunggu orderan...</div>}</div>}</div>;
+};
+
+const MerchantView = ({ view, user }) => {
+  const [items, setItems] = useState([]);
+  const [newItemName, setNewItemName] = useState('');
+  const [newItemPrice, setNewItemPrice] = useState('');
+  const [incomingOrders, setIncomingOrders] = useState([]);
+  const [storeName, setStoreName] = useState('');
+  const [storeAddress, setStoreAddress] = useState('');
+  const [storeCategory, setStoreCategory] = useState('Makanan & Minuman');
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [walletHistory, setWalletHistory] = useState([]); 
+  const [isRegistered, setIsRegistered] = useState(false);
+  const [hasLogin, setHasLogin] = useState(false);
+  const [regName, setRegName] = useState('');
+  const [regWa, setRegWa] = useState('');
+  const [regPin, setRegPin] = useState('');
+  const [loginPin, setLoginPin] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [isLoginMode, setIsLoginMode] = useState(false); // ADDED LOGIN MODE
+  
+  // NEW: STORE OPEN/CLOSE STATUS
+  const [isStoreOpen, setIsStoreOpen] = useState(true);
+
+  useEffect(() => { 
+      if(user) getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'merchants', user.uid)).then(s => { 
+          if(s.exists()) { 
+              setIsRegistered(true); 
+              const d = s.data(); 
+              if (d.name) { 
+                  setStoreName(d.name); 
+                  setStoreAddress(d.address); 
+                  setStoreCategory(d.category || 'Makanan & Minuman'); 
+                  setProfileSaved(true); 
+                  // Load store status (default true if undefined)
+                  setIsStoreOpen(d.isOpen !== undefined ? d.isOpen : true);
+              } 
+          } 
+      }); 
+  }, [user]);
+
+  useEffect(() => { if (!user || !hasLogin) return; const u1 = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'products'), where('merchantId', '==', user.uid)), s => setItems(s.docs.map(d => ({id: d.id, ...d.data()})))); const u2 = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'orders'), where('merchantId', '==', user.uid), where('status', '==', 'pending')), s => setIncomingOrders(s.docs.map(d => ({id: d.id, ...d.data()})))); if(view === 'wallet') { const u3 = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'orders'), where('merchantId', '==', user.uid), where('status', '==', 'completed')), s => setWalletHistory(s.docs.map(d => ({id: d.id, ...d.data()})))); return () => { u1(); u2(); u3(); }; } return () => { u1(); u2(); }; }, [user, view, hasLogin]);
+
+  const handleRegister = async () => { 
+      if (!regName || !regWa || !regPin) { setAuthError("Data tidak lengkap"); return; } 
+      
+      try {
+        const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'merchants'), where('whatsapp', '==', regWa));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+            setAuthError("Nomor WhatsApp sudah terdaftar! Silakan Login.");
+            setIsLoginMode(true);
+            return;
+        }
+      } catch (e) {
+        console.error(e);
+        setAuthError("Gagal validasi.");
+        return;
+      }
+
+      await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'merchants', user.uid), { ownerName: regName, whatsapp: regWa, pin: regPin, joinedAt: serverTimestamp(), isOpen: true }, { merge: true }); 
+      setIsRegistered(true); setAuthError(''); alert("Registrasi Berhasil! Silakan Login."); 
+  };
+
+  // MANUAL LOGIN MERCHANT
+  const handleManualLogin = async () => {
+    if(!regWa || !regPin) { setAuthError("Mohon isi WhatsApp dan PIN"); return; }
+    try {
+        const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'merchants'), where('whatsapp', '==', regWa));
+        const snap = await getDocs(q);
+        if(snap.empty) { setAuthError("Nomor belum terdaftar."); return; }
+        const oldDoc = snap.docs[0];
+        if(oldDoc.data().pin !== regPin) { setAuthError("PIN Salah!"); return; }
+
+        await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'merchants', user.uid), { ...oldDoc.data(), migratedFrom: oldDoc.id, lastLogin: serverTimestamp() }, { merge: true });
+        if(oldDoc.id !== user.uid) await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'merchants', oldDoc.id));
+
+        setIsRegistered(true); setHasLogin(true); setAuthError(''); alert("Login Berhasil! Toko Anda telah dipulihkan.");
+    } catch(e) { setAuthError("Gagal login: " + e.message); }
+  };
+
+  const handleLogin = async () => { const d = await getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'merchants', user.uid)); if(d.exists() && d.data().pin === loginPin) { setHasLogin(true); setAuthError(''); } else { setAuthError("PIN Salah!"); } };
+  
+  const saveProfile = async () => { await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'merchants', user.uid), { name: storeName, address: storeAddress, category: storeCategory, ownerId: user.uid }, { merge: true }); setProfileSaved(true); alert("Profil Toko tersimpan!"); };
+  
+  // NEW: TOGGLE STORE STATUS
+  const toggleStoreStatus = async () => {
+      if(!profileSaved) return;
+      const newStatus = !isStoreOpen;
+      setIsStoreOpen(newStatus); // Optimistic update
+      await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'merchants', user.uid), { isOpen: newStatus });
+  };
+
+  const addItem = async () => { if(!profileSaved) return; await addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'products'), { name: newItemName, price: parseInt(newItemPrice) || 0, merchantId: user.uid, merchantName: storeName, merchantAddress: storeAddress, merchantCategory: storeCategory, createdAt: serverTimestamp() }); setNewItemName(''); setNewItemPrice(''); };
+  const deleteItem = async (id) => deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'products', id));
+
+  if (!isRegistered) return (
+    <div className="max-w-md mx-auto mt-10">
+        <Card className="p-8 border-t-4 border-t-orange-500">
+            <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mx-auto mb-3">
+                    {isLoginMode ? <LogIn size={32} /> : <Store size={32} />}
+                </div>
+                <h2 className="text-2xl font-bold text-gray-800">{isLoginMode ? 'Masuk Merchant' : 'Daftar Merchant'}</h2>
+            </div>
+            <div className="space-y-3">
+                {!isLoginMode && <input className="w-full border p-3 rounded-xl bg-gray-50" placeholder="Nama Pemilik" value={regName} onChange={e => setRegName(e.target.value)} />}
+                <input className="w-full border p-3 rounded-xl bg-gray-50" placeholder="Nomor WhatsApp" value={regWa} onChange={e => setRegWa(e.target.value)} />
+                <div className="relative">
+                    <input type="password" className="w-full border p-3 rounded-xl bg-gray-50 text-center tracking-widest font-bold" placeholder={isLoginMode ? "Masukkan PIN" : "Buat PIN (Angka)"} maxLength={6} value={regPin} onChange={e => setRegPin(e.target.value)} />
+                    <Lock size={16} className="absolute left-4 top-4 text-gray-400" />
+                </div>
+                {authError && <p className="text-red-500 text-sm text-center bg-red-50 p-2 rounded">{authError}</p>}
+                
+                {isLoginMode ? (
+                    <Button onClick={handleManualLogin} className="w-full py-3 text-lg bg-orange-500 hover:bg-orange-600">Masuk Sekarang</Button>
+                ) : (
+                    <Button onClick={handleRegister} className="w-full py-3 text-lg bg-orange-500 hover:bg-orange-600">Daftar Sekarang</Button>
+                )}
+                <div className="text-center pt-2">
+                    <button onClick={() => { setIsLoginMode(!isLoginMode); setAuthError(''); }} className="text-sm text-orange-600 underline font-semibold">
+                        {isLoginMode ? "Belum punya akun? Daftar" : "Sudah punya akun? Login disini"}
+                    </button>
+                </div>
+            </div>
+        </Card>
+    </div>
+  );
+
+  if (!hasLogin) return <div className="max-w-sm mx-auto mt-20"><Card className="p-8 text-center shadow-xl"><div className="w-16 h-16 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center mx-auto mb-4"><Lock size={32} /></div><h2 className="text-xl font-bold mb-2">Login Merchant</h2><p className="text-gray-500 text-sm mb-6">Masukkan PIN keamanan Anda</p><input type="password" className="w-full text-center text-3xl font-bold tracking-[0.5em] p-4 border rounded-2xl focus:ring-2 focus:ring-orange-500 mb-4" placeholder="••••" maxLength={6} value={loginPin} onChange={e => setLoginPin(e.target.value)} />{authError && <p className="text-red-500 text-sm font-bold mb-4">{authError}</p>}<Button onClick={handleLogin} className="w-full py-3 bg-orange-500 hover:bg-orange-600">Masuk Dashboard</Button></Card></div>;
+  if (view === 'wallet') { const totalIncome = walletHistory.reduce((acc, curr) => acc + (curr.merchantIncome || 0), 0); return <div className="space-y-6"><h2 className="text-2xl font-bold flex items-center gap-2"><Wallet size={28} /> Dompet Merchant</h2><Card className="bg-gradient-to-r from-orange-500 to-red-500 text-white border-none p-6 shadow-lg"><p className="text-orange-100 text-sm mb-1 uppercase font-semibold">Saldo Pendapatan Bersih</p><h3 className="text-4xl font-bold">{formatRupiah(totalIncome)}</h3><p className="text-xs text-orange-100 mt-2">*Sudah dipotong komisi admin 10%</p></Card><div className="space-y-3"><h4 className="font-bold text-gray-700">Riwayat Penjualan</h4>{walletHistory.length > 0 ? walletHistory.map(order => <Card key={order.id} className="flex justify-between items-center py-3 border-l-4 border-l-orange-500"><div><div className="flex items-center gap-2"><span className="font-bold text-gray-800">{order.itemDetail}</span><span className="text-xs text-gray-400">{formatDate(order.createdAt)}</span></div><p className="text-xs text-gray-500 mt-1">Pembeli: {order.passengerName}</p></div><div className="text-right"><p className="font-bold text-emerald-600">+{formatRupiah(order.merchantIncome)}</p><p className="text-[10px] text-gray-400">Harga Jual: {formatRupiah(order.foodCost || order.price)}</p></div></Card>) : <div className="text-center py-10 bg-gray-50 rounded-xl text-gray-400">Belum ada penjualan.</div>}</div></div>; }
+
+  return (
+    <div className="space-y-6">
+        <div className="flex justify-between items-center">
+            <h2 className="text-2xl font-bold">Kelola Usaha</h2>
+            {/* TOGGLE STORE BUTTON */}
+            <Button 
+                variant={isStoreOpen ? "danger" : "primary"} 
+                className={`text-sm ${isStoreOpen ? 'bg-red-500 hover:bg-red-600 shadow-red-200' : 'bg-green-500 hover:bg-green-600 shadow-green-200'}`}
+                onClick={toggleStoreStatus}
+                disabled={!profileSaved}
+                icon={Power}
+            >
+                {isStoreOpen ? "Tutup Toko" : "Buka Toko"}
+            </Button>
+        </div>
+        
+        {!isStoreOpen && (
+            <div className="bg-red-50 text-red-600 p-4 rounded-xl border border-red-100 flex items-center gap-3 animate-pulse">
+                <Store size={24} />
+                <span className="font-bold">Toko Anda Sedang Tutup. Pelanggan tidak bisa memesan.</span>
+            </div>
+        )}
+
+        <div className="grid md:grid-cols-3 gap-6">
+            <div className="md:col-span-2 space-y-4">
+                <Card className={`border-l-4 ${profileSaved ? 'border-l-emerald-500' : 'border-l-orange-500'}`}>
+                    <h3 className="font-bold mb-3 flex items-center gap-2"><Store className={profileSaved ? 'text-emerald-500' : 'text-orange-500'} /> Identitas Toko</h3>
+                    <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                            <div><label className="text-xs text-gray-500 mb-1 block">Nama Toko</label><input className="w-full p-2 rounded-lg border border-gray-200 bg-gray-50" value={storeName} onChange={(e) => setStoreName(e.target.value)} /></div>
+                            <div><label className="text-xs text-gray-500 mb-1 block">Alamat Lengkap</label><input className="w-full p-2 rounded-lg border border-gray-200 bg-gray-50" value={storeAddress} onChange={(e) => setStoreAddress(e.target.value)} /></div>
+                            <div className="col-span-2"><label className="text-xs text-gray-500 mb-1 block">Kategori Usaha</label><select className="w-full p-2 rounded-lg border border-gray-200 bg-gray-50 cursor-pointer" value={storeCategory} onChange={(e) => setStoreCategory(e.target.value)}>{['Makanan & Minuman', 'Laundry', 'Toko Sembako', 'Bahan Bangunan', 'Apotik', 'Lainnya'].map(c => <option key={c} value={c}>{c}</option>)}</select></div>
+                        </div>
+                        <Button onClick={saveProfile} variant={profileSaved ? "outline" : "primary"} className="w-full py-2 text-sm">{profileSaved ? "Update Profil Toko" : "Simpan Profil Toko"}</Button>
+                    </div>
+                </Card>
+                
+                <Card className="bg-emerald-50 border border-emerald-100">
+                    <div className="flex justify-between items-center mb-3"><h3 className="font-bold text-emerald-800">Tambah Produk / Layanan</h3>{!profileSaved && <span className="text-[10px] text-red-500 bg-white px-2 py-1 rounded">Isi profil toko dulu</span>}</div>
+                    <div className="flex gap-2">
+                        <input className="flex-1 p-2 rounded-lg border border-gray-200" placeholder="Nama Produk / Layanan" value={newItemName} onChange={(e) => setNewItemName(e.target.value)} disabled={!profileSaved} />
+                        <input className="w-32 p-2 rounded-lg border border-gray-200" placeholder="Harga" type="number" value={newItemPrice} onChange={(e) => setNewItemPrice(e.target.value)} disabled={!profileSaved} />
+                        <Button onClick={addItem} disabled={!profileSaved} className="px-3"><Plus size={20}/></Button>
+                    </div>
+                </Card>
+                
+                <h3 className="font-bold text-lg">Daftar Produk Saya</h3>
+                {items.map(item => <Card key={item.id} className="flex justify-between items-center py-3"><div className="flex items-center gap-4"><div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center"><Utensils size={20} className="text-gray-400" /></div><div><p className="font-bold">{item.name}</p><p className="text-sm text-gray-500">Harga: {formatRupiah(item.price)}</p></div></div><button onClick={() => deleteItem(item.id)} className="text-red-500 bg-red-50 p-2 rounded-lg hover:bg-red-100 transition-colors"><Trash2 size={18} /></button></Card>)}
+            </div>
+            
+            <div className="md:col-span-1">
+                <Card className="h-full bg-orange-50 border-orange-100">
+                    <h3 className="font-bold text-orange-800 mb-4 flex items-center gap-2"><Bell size={18} /> Pesanan Masuk ({incomingOrders.length})</h3>
+                    <div className="space-y-3">
+                        {incomingOrders.map(order => <div key={order.id} className="bg-white p-3 rounded-xl shadow-sm border border-orange-100"><div className="flex justify-between mb-2"><span className="font-bold text-xs text-gray-400">Order #{order.id.slice(0,4)}</span><span className="text-xs bg-yellow-100 text-yellow-700 px-2 rounded">Baru</span></div><p className="font-bold text-gray-800 mb-1">{order.itemDetail}</p><p className="text-sm text-gray-600 mb-2">Kurir akan datang menjemput.</p></div>)}
+                        {incomingOrders.length === 0 && <p className="text-center text-sm text-gray-400 mt-4">Belum ada pesanan.</p>}
+                    </div>
+                </Card>
+            </div>
+        </div>
+    </div>
+  );
+};
+
+// --- ADMIN VIEW (NEW CPANEL & MANAGE USERS & TOPUP & GENERAL) ---
+const AdminView = ({ view }) => {
+  const [banks, setBanks] = useState([{ bankName: '', accountNumber: '', accountHolder: '' }]);
+  const [contacts, setContacts] = useState([{ number: '' }]); 
+  const [isSaved, setIsSaved] = useState(false);
+  const [totalRevenue, setTotalRevenue] = useState(0); 
+  
+  // GENERAL SETTINGS
+  const [newAppName, setNewAppName] = useState('');
+  const [appNameSaved, setAppNameSaved] = useState(false);
+
+  // SUPER ADMIN STATES
+  const [superAdminPinInput, setSuperAdminPinInput] = useState('');
+  const [newAdminPinInput, setNewAdminPinInput] = useState('');
+  const [isSuperAdminUnlocked, setIsSuperAdminUnlocked] = useState(false);
+  const [superAdminError, setSuperAdminError] = useState('');
+  const [adminPinChangeSuccess, setAdminPinChangeSuccess] = useState(false);
+
+  // MANAGE USERS STATES
+  const [allUsers, setAllUsers] = useState([]);
+  const [userLoading, setUserLoading] = useState(false);
+  const [editingUser, setEditingUser] = useState(null);
+  
+  // SEARCH STATE
+  const [searchTerm, setSearchTerm] = useState(''); 
+  
+  // DELETE STATE
+  const [deletingId, setDeletingId] = useState(null);
+
+  // MANUAL TOP UP STATES
+  const [topupWa, setTopupWa] = useState('');
+  const [topupAmount, setTopupAmount] = useState('');
+  const [topupLoading, setTopupLoading] = useState(false);
+
+  // --- NEW: DASHBOARD COUNTS ---
+  const [countDrivers, setCountDrivers] = useState(0);
+  const [countPassengers, setCountPassengers] = useState(0);
+  const [countMerchants, setCountMerchants] = useState(0);
+
+  useEffect(() => {
+      // Fetch Payment
+      getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'admin_settings', 'payment')).then(s => {
+        if(s.exists()) {
+          const d = s.data();
+          if (d.banks && Array.isArray(d.banks)) setBanks(d.banks);
+          else if (d.bankName) setBanks([{ bankName: d.bankName, accountNumber: d.accountNumber, accountHolder: d.accountHolder }]);
+        }
+      }).catch(err => console.log('Payment fetch error', err));
+
+      // Fetch Contact (Support multi)
+      getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'admin_settings', 'contact')).then(s => {
+         if(s.exists()) {
+             const d = s.data();
+             if(d.contacts && Array.isArray(d.contacts)) setContacts(d.contacts);
+             else if(d.phoneNumber) setContacts([{ number: d.phoneNumber }]);
+         }
+      }).catch(err => console.log('Contact fetch error', err));
+
+      // Fetch General Settings
+      getDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'admin_settings', 'general')).then(s => {
+          if(s.exists() && s.data().appName) setNewAppName(s.data().appName);
+          else setNewAppName('GoTransite');
+      }).catch(err => console.log('General settings fetch error', err));
+      
+      const qRevenue = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'orders'), where('status', '==', 'completed'));
+      const unsubRevenue = onSnapshot(qRevenue, (snapshot) => {
+         const total = snapshot.docs.reduce((acc, doc) => acc + (doc.data().adminFee || 0), 0);
+         setTotalRevenue(total);
+      }, (error) => console.log("Revenue snapshot error:", error));
+
+      // --- REAL-TIME COUNTERS WITH ERROR HANDLERS ---
+      const unsubDrivers = onSnapshot(collection(db, 'artifacts', APP_ID, 'public', 'data', 'drivers'), 
+        (snap) => setCountDrivers(snap.size),
+        (err) => console.log("Drivers snap error", err)
+      );
+      const unsubPassengers = onSnapshot(collection(db, 'artifacts', APP_ID, 'public', 'data', 'passengers'), 
+        (snap) => setCountPassengers(snap.size),
+        (err) => console.log("Passengers snap error", err)
+      );
+      const unsubMerchants = onSnapshot(collection(db, 'artifacts', APP_ID, 'public', 'data', 'merchants'), 
+        (snap) => setCountMerchants(snap.size),
+        (err) => console.log("Merchants snap error", err)
+      );
+
+      return () => {
+          unsubRevenue();
+          unsubDrivers();
+          unsubPassengers();
+          unsubMerchants();
+      };
+  }, []);
+
+  // FETCH ALL USERS FOR MANAGEMENT (DEFENSIVE CODING)
+  const fetchAllUsers = async () => {
+      setUserLoading(true);
+      try {
+        // Fetch data separately to handle partial failures
+        let drivers = [], passengers = [], merchants = [];
+
+        try {
+            const dSnap = await getDocs(collection(db, 'artifacts', APP_ID, 'public', 'data', 'drivers'));
+            // NEW: ADD UNIQUE ID COMBINATION TO PREVENT DUPLICATE KEY ERROR
+            drivers = dSnap.docs.map(d => ({ ...d.data(), id: d.id, role: 'Driver', col: 'drivers', uniqueId: `driver_${d.id}` }));
+        } catch(e) { console.warn("Failed to fetch drivers", e); }
+
+        try {
+            const pSnap = await getDocs(collection(db, 'artifacts', APP_ID, 'public', 'data', 'passengers'));
+            passengers = pSnap.docs.map(d => ({ ...d.data(), id: d.id, role: 'Penumpang', col: 'passengers', uniqueId: `passenger_${d.id}` }));
+        } catch(e) { console.warn("Failed to fetch passengers", e); }
+
+        try {
+            const mSnap = await getDocs(collection(db, 'artifacts', APP_ID, 'public', 'data', 'merchants'));
+            merchants = mSnap.docs.map(d => ({ ...d.data(), id: d.id, role: 'Merchant', name: d.data().ownerName || 'Merchant', col: 'merchants', uniqueId: `merchant_${d.id}` }));
+        } catch(e) { console.warn("Failed to fetch merchants", e); }
+
+        setAllUsers([...drivers, ...passengers, ...merchants]);
+      } catch (e) {
+        console.error("Critical error fetching users:", e);
+      } finally {
+        setUserLoading(false);
+      }
+  };
+
+  useEffect(() => {
+    if (view === 'manage_users') {
+      fetchAllUsers();
+    }
+  }, [view]);
+
+  // --- FILTER USERS BASED ON SEARCH TERM (ULTRA SAFE) ---
+  const filteredUsers = allUsers.filter(user => {
+    if (!user) return false; // Skip empty objects
+    const term = safeString(searchTerm).toLowerCase();
+    // SAFE STRING CONVERSION ON ALL FIELDS
+    const name = safeString(user.name || user.ownerName).toLowerCase();
+    const wa = safeString(user.whatsapp).toLowerCase();
+    const role = safeString(user.role).toLowerCase();
+    
+    return name.includes(term) || wa.includes(term) || role.includes(term);
+  });
+
+  const handleBankChange = (index, field, value) => {
+    const newBanks = [...banks];
+    newBanks[index][field] = value;
+    setBanks(newBanks);
+  };
+  const addBank = () => setBanks([...banks, { bankName: '', accountNumber: '', accountHolder: '' }]);
+  const removeBank = (index) => { if(banks.length > 1) setBanks(banks.filter((_, i) => i !== index)); else alert("Minimal satu rekening harus ada."); };
+
+  const handleContactChange = (index, value) => {
+    const newContacts = [...contacts];
+    newContacts[index].number = value;
+    setContacts(newContacts);
+  };
+  const addContact = () => setContacts([...contacts, { number: '' }]);
+  const removeContact = (index) => { if(contacts.length > 1) setContacts(contacts.filter((_, i) => i !== index)); else alert("Minimal satu nomor kontak harus ada."); };
+
+  const saveSettings = async () => {
+    await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'admin_settings', 'payment'), { banks });
+    await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'admin_settings', 'contact'), { contacts });
+    await saveAppName(); // Save app name too
+    setIsSaved(true); setTimeout(() => setIsSaved(false), 2000);
+  };
+   
+  const saveContactsOnly = async () => {
+    await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'admin_settings', 'contact'), { contacts });
+    alert("Kontak Customer Care berhasil disimpan!");
+  };
+
+  const saveBanksOnly = async () => {
+    await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'admin_settings', 'payment'), { banks });
+    alert("Rekening Top-Up berhasil disimpan!");
+  };
+
+  const saveAppName = async () => {
+      if(newAppName.trim() === '') return;
+      await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'admin_settings', 'general'), { appName: newAppName });
+      setAppNameSaved(true);
+      setTimeout(() => setAppNameSaved(false), 2000);
+  };
+
+  // MANUAL TOP UP LOGIC
+  const handleManualTopUp = async () => {
+    if(!topupWa || !topupAmount) return alert("Mohon isi nomor WA dan nominal.");
+    setTopupLoading(true);
+    try {
+        // Find user by WA in 'passengers'
+        const q = query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'passengers'), where('whatsapp', '==', topupWa));
+        const snap = await getDocs(q);
+        
+        if (snap.empty) {
+            alert("Penumpang dengan nomor WhatsApp tersebut tidak ditemukan.");
+        } else {
+            const userDoc = snap.docs[0];
+            const currentBalance = userDoc.data().balance || 0;
+            const amount = parseInt(topupAmount);
+            
+            await updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'passengers', userDoc.id), {
+                balance: increment(amount)
+            });
+            
+            alert(`Berhasil Top Up Rp ${amount.toLocaleString()} ke ${userDoc.data().name}`);
+            setTopupWa('');
+            setTopupAmount('');
+        }
+    } catch(e) {
+        console.error(e);
+        alert("Gagal melakukan top up.");
+    }
+    setTopupLoading(false);
+  };
+
+  // SUPER ADMIN ACTIONS
+  const verifySuperAdmin = () => {
+    if (superAdminPinInput === '88889999') {
+      setIsSuperAdminUnlocked(true);
+      setSuperAdminError('');
+    } else {
+      setSuperAdminError('PIN Super Admin Salah!');
+    }
+  };
+
+  const updateAdminPin = async () => {
+    if (newAdminPinInput.length < 4) {
+      alert("PIN Admin minimal 4 digit.");
+      return;
+    }
+    await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'admin_settings', 'security'), { 
+      currentAdminPin: newAdminPinInput 
+    });
+    setAdminPinChangeSuccess(true);
+    setTimeout(() => {
+      setAdminPinChangeSuccess(false);
+      setNewAdminPinInput('');
+      setSuperAdminPinInput('');
+      setIsSuperAdminUnlocked(false); // Relock for security
+    }, 2000);
+  };
+
+  // USER MANAGEMENT ACTIONS
+  const deleteUser = async (collectionName, docId) => {
+    if (!collectionName || !docId) {
+        console.error("Invalid delete parameters:", collectionName, docId);
+        return;
+    }
+    
+    // Set loading state for this specific ID
+    setDeletingId(docId);
+    
+    try {
+        await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', collectionName, docId));
+        
+        // Remove from local state immediately to update UI without refresh
+        // Fix: Also remove any other rows that might share the same ID (duplicates cleanup)
+        setAllUsers(prev => prev.filter(u => u.id !== docId));
+        
+    } catch (error) {
+        console.error("Gagal menghapus user:", error);
+        // Fallback: If it fails, maybe reload the list to ensure sync
+        fetchAllUsers();
+    } finally {
+        setDeletingId(null);
+    }
+  };
+
+  const saveUserEdit = async () => {
+    if (!editingUser) return;
+    const updateData = {
+       name: editingUser.name,
+       whatsapp: editingUser.whatsapp,
+       pin: editingUser.pin,
+    };
+    // Add specific fields if they exist
+    if(editingUser.address !== undefined) updateData.address = editingUser.address;
+    if(editingUser.plate !== undefined) updateData.plate = editingUser.plate;
+
+    await setDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', editingUser.col, editingUser.id), updateData, { merge: true });
+     
+    setAllUsers(prev => prev.map(u => (u.id === editingUser.id && u.col === editingUser.col ? editingUser : u)));
+    setEditingUser(null);
+    alert("Data user berhasil diperbarui!");
+  };
+
+  if (view === 'manage_users') {
+      return (
+        <div className="space-y-6">
+           <div className="flex justify-between items-center">
+               <h2 className="text-2xl font-bold flex items-center gap-2"><Users size={28} /> Kelola User</h2>
+               <Button onClick={fetchAllUsers} variant="secondary" className="py-2 text-sm flex items-center gap-2">
+                   <RefreshCw size={16} className={userLoading ? "animate-spin" : ""} /> Refresh Data
+               </Button>
+           </div>
+           
+           {/* SEARCH BAR (ADDED HERE) */}
+           <div className="flex gap-2 mb-4">
+                <div className="relative flex-1">
+                    <Search className="absolute left-3 top-3 text-gray-400" size={20} />
+                    <input 
+                        type="text" 
+                        placeholder="Cari user berdasarkan Nama, WA, atau Role..." 
+                        className="w-full pl-10 pr-4 py-2 border rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                </div>
+                <Button onClick={fetchAllUsers} variant="secondary" className="py-2 px-4 h-full">
+                    <RefreshCw size={20} className={userLoading ? "animate-spin" : ""} />
+                </Button>
+           </div>
+           
+           {/* EDIT MODAL */}
+           {editingUser && (
+             <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+                <Card className="w-full max-w-md relative">
+                   <button onClick={() => setEditingUser(null)} className="absolute right-4 top-4 text-gray-400 hover:text-gray-600"><X size={24}/></button>
+                   <h3 className="font-bold text-xl mb-4">Edit Data User</h3>
+                   <div className="space-y-3">
+                      <div>
+                        <label className="text-xs text-gray-500 font-bold">Nama</label>
+                        <input className="w-full border p-2 rounded" value={editingUser.name || ''} onChange={e => setEditingUser({...editingUser, name: e.target.value})} />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500 font-bold">WhatsApp</label>
+                        <input className="w-full border p-2 rounded" value={editingUser.whatsapp || ''} onChange={e => setEditingUser({...editingUser, whatsapp: e.target.value})} />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500 font-bold">PIN Keamanan</label>
+                        <input className="w-full border p-2 rounded" value={editingUser.pin || ''} onChange={e => setEditingUser({...editingUser, pin: e.target.value})} />
+                      </div>
+                       
+                      {/* DRIVER SPECIFIC FIELDS */}
+                      {editingUser.role === 'Driver' && (
+                          <>
+                            <div>
+                                <label className="text-xs text-gray-500 font-bold">Alamat Domisili</label>
+                                <input className="w-full border p-2 rounded" value={editingUser.address || ''} onChange={e => setEditingUser({...editingUser, address: e.target.value})} />
+                            </div>
+                            <div>
+                                <label className="text-xs text-gray-500 font-bold">Nomor Plat Motor</label>
+                                <input className="w-full border p-2 rounded" value={editingUser.plate || ''} onChange={e => setEditingUser({...editingUser, plate: e.target.value})} />
+                            </div>
+                          </>
+                      )}
+
+                      <Button onClick={saveUserEdit} className="w-full mt-4">Simpan Perubahan</Button>
+                   </div>
+                </Card>
+             </div>
+           )}
+
+           <Card className="overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                   <thead className="bg-gray-50 text-gray-600 font-bold border-b">
+                      <tr>
+                          <th className="p-4">Nama</th>
+                          <th className="p-4">Role</th>
+                          <th className="p-4">WhatsApp</th>
+                          <th className="p-4">PIN</th>
+                          <th className="p-4">Detail Lain</th>
+                          <th className="p-4 text-right">Aksi</th>
+                      </tr>
+                   </thead>
+                   <tbody className="divide-y">
+                      {userLoading ? (
+                        <tr><td colSpan={6} className="p-8 text-center text-gray-500">Memuat data user...</td></tr>
+                      ) : filteredUsers.length > 0 ? (
+                        filteredUsers.map((user) => (
+                          // KEY HARUS UNIK (GABUNGAN ID + ROLE) AGAR TIDAK CRASH
+                          <tr key={user.uniqueId} className="hover:bg-gray-50">
+                             <td className="p-4 font-medium">{safeDisplay(user.name || user.ownerName)}</td>
+                             <td className="p-4"><span className={`px-2 py-1 rounded text-xs font-bold ${user.role === 'Driver' ? 'bg-green-100 text-green-700' : user.role === 'Merchant' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>{safeDisplay(user.role)}</span></td>
+                             <td className="p-4">{safeDisplay(user.whatsapp)}</td>
+                             <td className="p-4 font-mono text-gray-500">{safeDisplay(user.pin)}</td>
+                             <td className="p-4 text-xs text-gray-500">
+                                {user.role === 'Driver' && (
+                                    <div>
+                                        <div>🏠 {safeDisplay(user.address)}</div>
+                                        <div>🛵 {safeDisplay(user.plate)}</div>
+                                    </div>
+                                )}
+                                {user.role === 'Merchant' && (
+                                    <div>🏪 {safeDisplay(user.name)}</div>
+                                )}
+                                {user.role === 'Penumpang' && (
+                                    <div>Saldo: {formatRupiah(user.balance || 0)}</div>
+                                )}
+                             </td>
+                             <td className="p-4 flex justify-end gap-2">
+                                <button onClick={() => setEditingUser(user)} className="p-2 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"><Edit size={16}/></button>
+                                <button 
+                                    onClick={() => deleteUser(user.col, user.id)} 
+                                    className="p-2 bg-red-50 text-red-600 rounded hover:bg-red-100 disabled:opacity-50"
+                                    disabled={deletingId === user.id}
+                                >
+                                    {deletingId === user.id ? <Loader size={16} className="animate-spin" /> : <Trash2 size={16}/>}
+                                </button>
+                             </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr><td colSpan={6} className="p-8 text-center text-gray-500">
+                            {searchTerm ? "Tidak ada user yang cocok dengan pencarian." : "Belum ada user terdaftar."}
+                        </td></tr>
+                      )}
+                   </tbody>
+                </table>
+              </div>
+           </Card>
+        </div>
+      )
+  }
+
+  if (view === 'cpanel') {
+    return (
+      <div className="space-y-6">
+         <h2 className="text-2xl font-bold flex items-center gap-2"><Settings size={28} /> Cpanel Admin</h2>
+         
+         {/* APP SETTINGS CARD */}
+         <Card className="border-l-4 border-l-purple-600 bg-purple-50/30">
+            <h3 className="font-bold mb-3 flex items-center gap-2"><Smartphone size={20} className="text-purple-600"/> Pengaturan Aplikasi</h3>
+            <div className="flex gap-3 items-end">
+                <div className="flex-1">
+                    <label className="text-xs text-gray-500 font-bold block mb-1">Nama Aplikasi (Branding)</label>
+                    <input 
+                        className="w-full border p-2 rounded-lg text-sm" 
+                        placeholder="Contoh: GoTransite" 
+                        value={newAppName} 
+                        onChange={e => setNewAppName(e.target.value)} 
+                    />
+                </div>
+                <Button onClick={saveAppName} variant="blue" className="py-2 text-sm h-[42px] whitespace-nowrap">
+                    {appNameSaved ? 'Tersimpan!' : 'Simpan Nama'}
+                </Button>
+            </div>
+         </Card>
+         
+         <div className="grid md:grid-cols-2 gap-6">
+            <div className="space-y-6">
+                <Card className="border-l-4 border-l-blue-600 h-fit">
+                    <h3 className="font-bold mb-4 flex items-center gap-2"><CreditCard size={20} className="text-blue-600"/> Rekening Top-Up</h3>
+                    <div className="space-y-4">
+                    {banks.map((bank, index) => (
+                        <div key={index} className="bg-gray-50 p-3 rounded-lg relative border border-gray-200">
+                            <div className="flex justify-between mb-2"><span className="text-xs font-bold text-gray-500">REKENING #{index + 1}</span>{banks.length > 1 && <button onClick={() => removeBank(index)} className="text-red-500"><Trash2 size={14} /></button>}</div>
+                            <div className="space-y-2">
+                                <input className="w-full border p-2 rounded text-sm" value={bank.bankName} onChange={e => handleBankChange(index, 'bankName', e.target.value)} placeholder="Nama Bank" />
+                                <input className="w-full border p-2 rounded text-sm" value={bank.accountNumber} onChange={e => handleBankChange(index, 'accountNumber', e.target.value)} placeholder="Nomor Rekening" />
+                                <input className="w-full border p-2 rounded text-sm" value={bank.accountHolder} onChange={e => handleBankChange(index, 'accountHolder', e.target.value)} placeholder="Atas Nama" />
+                            </div>
+                        </div>
+                    ))}
+                    <button onClick={addBank} className="w-full py-2 border-2 border-dashed border-blue-300 text-blue-600 rounded-lg hover:bg-blue-50 flex items-center justify-center gap-2 font-bold text-xs"><PlusCircle size={14} /> TAMBAH REKENING</button>
+                    <div className="h-px bg-gray-200 my-2"></div>
+                    <Button onClick={saveBanksOnly} variant="blue" className="w-full py-2 text-sm">Simpan Rekening</Button>
+                    </div>
+                </Card>
+
+                {/* NEW MANUAL TOP UP CARD */}
+                <Card className="border-l-4 border-l-emerald-500 bg-emerald-50/30">
+                    <h3 className="font-bold mb-4 flex items-center gap-2"><RefreshCw size={20} className="text-emerald-600"/> Manual Top Up</h3>
+                    <div className="space-y-3">
+                        <div>
+                            <label className="text-xs text-gray-600 font-bold">Nomor WhatsApp Penumpang</label>
+                            <input className="w-full border p-2 rounded text-sm" placeholder="Contoh: 081234567890" value={topupWa} onChange={e => setTopupWa(e.target.value)} />
+                        </div>
+                        <div>
+                            <label className="text-xs text-gray-600 font-bold">Nominal Top Up (Rp)</label>
+                            <input className="w-full border p-2 rounded text-sm" type="number" placeholder="Contoh: 50000" value={topupAmount} onChange={e => setTopupAmount(e.target.value)} />
+                        </div>
+                        <Button onClick={handleManualTopUp} variant="green" className="w-full py-2 text-sm" disabled={topupLoading}>
+                            {topupLoading ? 'Memproses...' : 'Proses Top Up'}
+                        </Button>
+                    </div>
+                </Card>
+            </div>
+
+            <div className="space-y-6">
+                <Card className="border-l-4 border-l-green-600">
+                    <h3 className="font-bold mb-4 flex items-center gap-2"><Phone size={20} className="text-green-600"/> Kontak Customer Care</h3>
+                    <div className="space-y-3">
+                        {contacts.map((contact, index) => (
+                            <div key={index} className="relative">
+                                <label className="text-xs text-gray-500 font-bold block mb-1 flex justify-between">
+                                    <span>Nomor WhatsApp #{index + 1}</span>
+                                    {contacts.length > 1 && <button onClick={() => removeContact(index)} className="text-red-500"><Trash2 size={12}/></button>}
+                                </label>
+                                <input 
+                                    className="w-full border p-3 rounded-xl focus:ring-2 focus:ring-green-500" 
+                                    value={contact.number} 
+                                    onChange={e => handleContactChange(index, e.target.value)} 
+                                    placeholder="Contoh: 081234567890" 
+                                />
+                            </div>
+                        ))}
+                        <div className="flex gap-2">
+                            <button onClick={addContact} className="flex-1 py-2 border-2 border-dashed border-green-300 text-green-600 rounded-lg hover:bg-green-50 flex items-center justify-center gap-2 font-bold text-xs"><PlusCircle size={14} /> TAMBAH KONTAK</button>
+                            <Button onClick={saveContactsOnly} variant="green" className="px-4 py-2 text-xs font-bold whitespace-nowrap shadow-none">Simpan Kontak</Button>
+                        </div>
+                        <p className="text-xs text-gray-400 mt-2">*Nomor ini akan muncul di menu Bantuan pengguna.</p>
+                    </div>
+                </Card>
+
+                {/* SUPER ADMIN CARD */}
+                <Card className="border-l-4 border-l-red-600 bg-red-50/50">
+                    <h3 className="font-bold mb-4 flex items-center gap-2 text-red-800"><Shield size={20}/> Keamanan Super Admin</h3>
+                    
+                    {!isSuperAdminUnlocked ? (
+                        <div className="space-y-3">
+                            <p className="text-xs text-gray-600">Masukkan PIN Super Admin untuk mengubah PIN Admin Harian.</p>
+                            <div className="flex gap-2">
+                                <input 
+                                    type="password"
+                                    className="flex-1 border p-2 rounded-lg text-sm" 
+                                    placeholder="PIN Super Admin"
+                                    value={superAdminPinInput}
+                                    onChange={e => setSuperAdminPinInput(e.target.value)}
+                                />
+                                <Button onClick={verifySuperAdmin} variant="dark" className="py-2 text-xs px-4">Buka Akses</Button>
+                            </div>
+                            {superAdminError && <p className="text-xs text-red-600 font-bold">{superAdminError}</p>}
+                        </div>
+                    ) : (
+                        <div className="space-y-3 animate-in fade-in slide-in-from-top-4 duration-300">
+                            <div className="bg-green-100 text-green-800 p-2 rounded text-xs font-bold flex items-center gap-2"><CheckCircle size={14}/> Akses Super Admin Terbuka</div>
+                            <div>
+                                <label className="text-xs text-gray-600 font-bold block mb-1">PIN Admin Baru</label>
+                                <input 
+                                    type="text"
+                                    className="w-full border p-2 rounded-lg text-sm font-mono tracking-widest" 
+                                    placeholder="Masukkan PIN Baru"
+                                    value={newAdminPinInput}
+                                    onChange={e => setNewAdminPinInput(e.target.value)}
+                                />
+                            </div>
+                            <Button onClick={updateAdminPin} variant="danger" className="w-full py-2 text-sm">
+                                {adminPinChangeSuccess ? "Berhasil Diubah!" : "Simpan PIN Admin Baru"}
+                            </Button>
+                        </div>
+                    )}
+                </Card>
+
+                <Button onClick={saveSettings} variant="blue" className="w-full py-4 text-lg">
+                    {isSaved ? <span className="flex items-center gap-2"><CheckCircle size={20}/> Tersimpan!</span> : 'Simpan Semua Pengaturan'}
+                </Button>
+            </div>
+         </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-2xl font-bold">Dashboard Admin</h2>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <StatsCard label="Total User" value={(countDrivers + countPassengers + countMerchants).toLocaleString()} icon={User} color="bg-blue-500" />
+          <StatsCard label="Pendapatan Admin" value={formatRupiah(totalRevenue)} icon={Wallet} color="bg-emerald-500" />
+          <StatsCard label="Driver Aktif" value={countDrivers.toLocaleString()} icon={Bike} color="bg-orange-500" />
+      </div>
+    </div>
+  );
+};
+
+const RoleCard = ({ icon: Icon, title, desc, color, onClick }) => (
+  <button onClick={onClick} className="flex flex-col items-center text-center p-6 rounded-2xl bg-white border border-gray-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300"><div className={`w-20 h-20 ${color} rounded-full flex items-center justify-center mb-4`}><Icon size={36} /></div><h3 className="text-xl font-bold text-gray-800 mb-1">{title}</h3><p className="text-sm text-gray-500">{desc}</p></button>
+);
+const ServiceIcon = ({ icon: Icon, label, active, onClick }) => (
+  <button onClick={onClick} className={`flex flex-col items-center gap-2 p-3 rounded-xl min-w-[70px] transition-all ${active ? 'bg-white/20' : 'hover:bg-white/10'}`}><div className={`w-12 h-12 rounded-full flex items-center justify-center ${active ? 'bg-white text-emerald-600' : 'bg-emerald-700 text-emerald-100'}`}><Icon size={24} /></div><span className="text-sm font-semibold">{label}</span></button>
+);
+const SidebarItem = ({ icon: Icon, label, active, onClick }) => (
+  <button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 mb-1 ${active ? 'bg-emerald-50 text-emerald-600 font-bold shadow-sm' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}><Icon size={20} className={active ? 'text-emerald-500' : 'text-gray-400'} /><span>{label}</span>{active && <ChevronRight size={16} className="ml-auto opacity-50" />}</button>
+);
+const StatsCard = ({ label, value, icon: Icon, color }) => (
+  <Card className="flex items-center gap-4"><div className={`${color} text-white w-12 h-12 rounded-lg flex items-center justify-center shadow-md`}><Icon size={24} /></div><div><p className="text-xs text-gray-500 uppercase font-semibold">{label}</p><p className="text-xl font-bold">{value}</p></div></Card>
+);
